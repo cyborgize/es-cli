@@ -1,0 +1,4 @@
+B _build/src
+S src
+B +threads
+PKG lwt.ppx curl.lwt devkit re2

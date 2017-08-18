@@ -1,0 +1,17 @@
+OASISFormat: 0.4
+Name:        elastic-cli
+Version:     1.0
+Synopsis:    Command line client for ElasticSearch
+Authors:     Raman Varabets
+License:     PROP
+Plugins:     META (0.4), DevFiles (0.4)
+BuildTools:  ocamlbuild
+BuildDepends: threads, lwt.ppx, devkit, re2
+OCamlVersion: >= 4.02.3
+AlphaFeatures: ocamlbuild_more_args
+XOCamlbuildPluginTags: package(mybuild)
+
+Executable es
+  Path:       src
+  MainIs:     es.ml
+  CompiledObject: best
