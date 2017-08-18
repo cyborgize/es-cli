@@ -19,16 +19,22 @@ let health () =
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "health [options] <host>\n"; exit 1 in
+  let usage () = fprintf stderr "health [options] <host1 [host2 [host3...]]>\n"; exit 1 in
   match List.rev !cmd with
-  | [] | _::_::_ -> usage ()
-  | [host] ->
-  let url = host ^ "/_cat/health?v" in
+  | [] -> usage ()
+  | hosts ->
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt `GET url with
-  | exception exn -> log #error ~exn "search"; Lwt.fail exn
-  | `Error error -> log #error "health error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  let%lwt results =
+    Lwt_list.mapi_p begin fun i host ->
+      let url = host ^ "/_cat/health?v" in
+      match%lwt Web.http_request_lwt `GET url with
+      | exception exn -> log #error ~exn "search"; Lwt.return (i, sprintf "%s: failure: %s" host (Printexc.to_string exn))
+      | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s: error %s\n" host error)
+      | `Ok result -> Lwt.return (i, result)
+    end hosts
+  in
+  List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
+  Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
 let nodes () =
   let cmd = ref [] in
