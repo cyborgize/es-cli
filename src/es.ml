@@ -12,6 +12,23 @@ let usage tools =
   List.sort ~cmp:compare tools |>
   List.iter (fun (s,_) -> fprintf stderr "  %s\n" s)
 
+let health () =
+  let cmd = ref [] in
+  let args = ExtArg.[
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "health [options] <host>\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_ -> usage ()
+  | [host] ->
+  let url = host ^ "/_cat/health?v" in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt `GET url with
+  | exception exn -> log #error ~exn "search"; Lwt.fail exn
+  | `Error error -> log #error "health error : %s" error; Lwt.fail_with error
+  | `Ok result -> Lwt_io.printl result
+
 let search () =
   let cmd = ref [] in
   let size = ref None in
@@ -80,6 +97,7 @@ let search () =
 
 let () =
   let tools = [
+    "health", health;
     "search", search;
   ] in
   match Action.args with
