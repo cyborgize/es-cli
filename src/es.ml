@@ -2,6 +2,8 @@ open Prelude
 open ExtLib
 open Printf
 
+module J = Yojson.Safe
+
 let log = Log.from "es"
 
 let usage tools =
@@ -17,12 +19,16 @@ let search () =
   let sort = ref [] in
   let source_include = ref [] in
   let source_exclude = ref [] in
+  let show_count = ref false in
+  let show_hits = ref false in
   let args = ExtArg.[
     may_int "n" size "<n> #set search limit";
     may_int "o" from "<n> #set search offset";
     "-s", String (tuck sort), "<field[:dir]> #set sort order";
     "-i", String (tuck source_include), "<field> #include source field";
     "-e", String (tuck source_exclude), "<field> #exclude source field";
+    bool "c" show_count " output number of hits";
+    bool "h" show_hits " output hit ids";
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
@@ -52,7 +58,25 @@ let search () =
   match%lwt Web.http_request_lwt `POST url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  | `Ok result ->
+  match !show_count || !show_hits with
+  | false -> Lwt_io.printl result
+  | _ ->
+  let%lwt () =
+    match !show_count with
+    | false -> Lwt.return_unit
+    | true -> J.from_string result |> J.Util.member "hits" |> J.Util.member "total" |> J.Util.to_int |> string_of_int |> Lwt_io.printl
+  in
+  let%lwt () =
+    match !show_hits with
+    | false -> Lwt.return_unit
+    | true ->
+    J.from_string result |> J.Util.member "hits" |> J.Util.member "hits" |> J.Util.convert_each begin fun hit ->
+      List.map ((^) "/" $ J.Util.to_string $ flip J.Util.member hit) [ "_index"; "_type"; "_id"; ] |> String.concat ""
+    end |>
+    Lwt_list.iter_s Lwt_io.printl
+  in
+  Lwt.return_unit
 
 let () =
   let tools = [
