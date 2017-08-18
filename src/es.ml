@@ -26,11 +26,18 @@ let health () =
   Lwt_main.run @@
   let%lwt results =
     Lwt_list.mapi_p begin fun i host ->
-      let url = host ^ "/_cat/health?v" in
+      let columns = [
+        "cluster"; "status";
+        "node.total"; "node.data";
+        "shards"; "pri"; "relo"; "init"; "unassign";
+        "pending_tasks"; "max_task_wait_time";
+        "active_shards_percent";
+      ] in
+      let url = sprintf "%s/_cat/health?h=%s" host (String.concat "," columns) in
       match%lwt Web.http_request_lwt `GET url with
-      | exception exn -> log #error ~exn "search"; Lwt.return (i, sprintf "%s: failure: %s" host (Printexc.to_string exn))
-      | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s: error %s\n" host error)
-      | `Ok result -> Lwt.return (i, result)
+      | exception exn -> log #error ~exn "search"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
+      | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s error %s\n" host error)
+      | `Ok result -> Lwt.return (i, sprintf "%s %s" host result)
     end hosts
   in
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
