@@ -3,6 +3,7 @@ open ExtLib
 open Printf
 
 module J = Yojson.Safe
+module SS = Set.Make(String)
 
 let log = Log.from "es"
 
@@ -28,6 +29,46 @@ let health () =
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "health error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
+
+let nodes () =
+  let cmd = ref [] in
+  let check_nodes = ref [] in
+  let args = ExtArg.[
+    "-h", Rest (tuck check_nodes), "<node1 [node 2 [node 3...]]> #check presence of specified nodes";
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "nodes [options] <host>\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_ -> usage ()
+  | [host] ->
+  let check_nodes = SS.of_list !check_nodes in
+  let url = host ^ "/_nodes" in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt `GET url with
+  | exception exn -> log #error ~exn "search"; Lwt.fail exn
+  | `Error error -> log #error "nodes error : %s" error; Lwt.fail_with error
+  | `Ok result ->
+  J.from_string result |>
+  J.Util.member "nodes" |>
+  J.Util.to_assoc |>
+  List.fold_left begin fun (missing, present) (_node_id, node) ->
+    let name = J.Util.member "name" node |> J.Util.to_string in
+    SS.remove name missing, SS.add name present
+  end (check_nodes, SS.empty) |>
+  fun (missing, present) ->
+  let%lwt () =
+    match SS.is_empty missing with
+    | true -> Lwt.return_unit
+    | false -> Lwt_io.printlf "missing: %s" (String.concat " " (SS.elements missing))
+  in
+  let%lwt () =
+    let unlisted = SS.diff present check_nodes in
+    match SS.is_empty unlisted with
+    | true -> Lwt.return_unit
+    | false -> Lwt_io.printlf "unlisted: %s" (String.concat " " (SS.elements unlisted))
+  in
+  Lwt.return_unit
 
 let search () =
   let cmd = ref [] in
@@ -98,6 +139,7 @@ let search () =
 let () =
   let tools = [
     "health", health;
+    "nodes", nodes;
     "search", search;
   ] in
   match Action.args with
