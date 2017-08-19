@@ -60,3 +60,12 @@ type error = {
   error <json name="type"> : string;
   ?reason : string nullable;
 }
+
+type scroll = {
+  scroll : string;
+  scroll_id : string;
+}
+
+type clear_scroll = {
+  scroll_id : string list;
+}
