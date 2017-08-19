@@ -65,9 +65,10 @@ let nodes config =
   let (host, cluster) = Common.get_cluster config host in
   let check_nodes =
     match !check_nodes, cluster with
-    | [], Some { Config_j.nodes = Some nodes; _ } -> SS.of_list nodes
-    | nodes, _ -> SS.of_list nodes
+    | [], Some { Config_j.nodes = Some nodes; _ } -> nodes
+    | nodes, _ -> nodes
   in
+  let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
   match%lwt Web.http_request_lwt `GET url with
