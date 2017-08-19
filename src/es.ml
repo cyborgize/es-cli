@@ -104,6 +104,7 @@ let search config =
   let source_include = ref [] in
   let source_exclude = ref [] in
   let routing = ref [] in
+  let preference = ref [] in
   let scroll = ref None in
   let show_count = ref false in
   let show_hits = ref false in
@@ -121,6 +122,7 @@ let search config =
     str_list "i" source_include "<field> #include source field";
     str_list "e" source_exclude "<field> #exclude source field";
     str_list "r" routing "<routing> #set routing";
+    str_list "p" preference "<preference> #set preference";
     may_str "scroll" scroll "<interval> #scroll search";
     bool "c" show_count " output number of hits";
     bool "h" show_hits " output hit ids";
@@ -138,7 +140,7 @@ let search config =
   let host = Common.get_host config host in
   let one = function [] -> None | [x] -> Some x | _ -> assert false in
   let int = Option.map string_of_int in
-  let csv = function [] -> None | l -> Some (String.concat "," l) in
+  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   let args = [
     "size", int !size;
     "from", int !from;
@@ -146,6 +148,7 @@ let search config =
     "_source", csv !source_include;
     "_source_exclude", csv !source_exclude;
     "routing", csv !routing;
+    "preference", csv ~sep:"|" !routing;
     "scroll", !scroll;
     "q", one query;
   ] in
