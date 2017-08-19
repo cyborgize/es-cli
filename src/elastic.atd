@@ -1,0 +1,62 @@
+
+type json <ocaml module="Yojson.Safe" t="json"> = abstract
+
+type id_hit = {
+  index <json name="_index"> : string;
+  doc_type <json name="_type"> : string;
+  id <json name="_id"> : string;
+}
+
+type unit_hit = {
+  inherit id_hit;
+  ~routing <json name="_routing"> : string nullable;
+  ~found: bool;
+  ~score <json name="_score"> : float;
+  ?version <json name="_version"> : int option;
+  ?fields : (string * json list) list <json repr="object"> option;
+  ?shard <json name="_shard"> : string option;
+  ?node <json name="_node"> : string option;
+  ~sort : json list;
+}
+
+type 'a option_hit = {
+  inherit unit_hit;
+  ?source <json name="_source"> : 'a option;
+}
+
+type 'a hit = {
+  inherit unit_hit;
+  source <json name="_source"> : 'a;
+}
+
+type 'a hits' = {
+  total : int;
+  ~max_score : float;
+  hits : 'a;
+}
+
+type 'a hits = 'a list hits'
+
+type 'a response' = {
+  took: int;
+  timed_out: bool;
+  shards <json name="_shards"> : shards;
+  ?scroll_id <json name="_scroll_id"> : string option;
+  ?error : error option;
+  ?hits: 'a hits option;
+}
+
+type 'a opt_response = 'a option_hit response'
+
+type 'a response = 'a hit response'
+
+type shards = {
+  total : int;
+  successful : int;
+  failed : int;
+}
+
+type error = {
+  error <json name="type"> : string;
+  ?reason : string nullable;
+}

@@ -146,18 +146,20 @@ let search config =
   match !show_count || !show_hits with
   | false -> Lwt_io.printl result
   | _ ->
+  let { Elastic_j.hits; _ } = Elastic_j.response'_of_string Elastic_j.read_id_hit result in
+  match hits with
+  | None -> log #error "no hits"; Lwt.return_unit
+  | Some { Elastic_j.total; hits; _ } ->
   let%lwt () =
     match !show_count with
     | false -> Lwt.return_unit
-    | true -> J.from_string result |> J.Util.member "hits" |> J.Util.member "total" |> J.Util.to_int |> string_of_int |> Lwt_io.printl
+    | true -> Lwt_io.printlf "%d" total
   in
   let%lwt () =
     match !show_hits with
     | false -> Lwt.return_unit
     | true ->
-    J.from_string result |> J.Util.member "hits" |> J.Util.member "hits" |> J.Util.convert_each begin fun hit ->
-      List.map ((^) "/" $ J.Util.to_string $ flip J.Util.member hit) [ "_index"; "_type"; "_id"; ] |> String.concat ""
-    end |>
+    List.map (fun { Elastic_j.index; doc_type; id; } -> sprintf "/%s/%s/%s" index doc_type id) hits |>
     Lwt_list.iter_s Lwt_io.printl
   in
   Lwt.return_unit
