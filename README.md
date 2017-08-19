@@ -18,7 +18,12 @@ An example configuration file:
       "host": "cluster1.mydomain.com:9200"
     },
     "cluster2": {
-      "host": "cluster2.mydomain.com:9200"
+      "host": "cluster2.mydomain.com:9200",
+      "nodes": [
+        "master",
+        "data{0..9}",
+        "client{0..4}"
+      ]
     }
   }
 }
