@@ -106,12 +106,19 @@ let search config =
   let scroll = ref None in
   let show_count = ref false in
   let show_hits = ref false in
+  let str_list =
+    ExtArg.make_arg @@ object
+      method store v = Arg.String (tuck v)
+      method kind = "string"
+      method show v = match !v with [] -> "none" | l -> String.concat "," l
+    end
+  in
   let args = ExtArg.[
     may_int "n" size "<n> #set search limit";
     may_int "o" from "<n> #set search offset";
-    "-s", String (tuck sort), "<field[:dir]> #set sort order";
-    "-i", String (tuck source_include), "<field> #include source field";
-    "-e", String (tuck source_exclude), "<field> #exclude source field";
+    str_list "s" sort "<field[:dir]> #set sort order";
+    str_list "i" source_include "<field> #include source field";
+    str_list "e" source_exclude "<field> #exclude source field";
     may_str "scroll" scroll "<interval> #scroll search";
     bool "c" show_count " output number of hits";
     bool "h" show_hits " output hit ids";
