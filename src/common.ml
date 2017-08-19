@@ -20,3 +20,8 @@ let get_host config name =
   match List.assoc name config.Config_j.clusters with
   | exception Not_found -> name
   | { Config_j.host; _ } -> Option.default name host
+
+let get_cluster config name =
+  match List.assoc name config.Config_j.clusters with
+  | exception Not_found -> name, None
+  | { Config_j.host; _ } as cluster_config -> Option.default name host, Some cluster_config

@@ -62,8 +62,12 @@ let nodes config =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
-  let host = Common.get_host config host in
-  let check_nodes = SS.of_list !check_nodes in
+  let (host, cluster) = Common.get_cluster config host in
+  let check_nodes =
+    match !check_nodes, cluster with
+    | [], Some { Config_j.nodes = Some nodes; _ } -> SS.of_list nodes
+    | nodes, _ -> SS.of_list nodes
+  in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
   match%lwt Web.http_request_lwt `GET url with
