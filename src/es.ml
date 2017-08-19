@@ -107,7 +107,7 @@ let search config =
   let preference = ref [] in
   let scroll = ref None in
   let show_count = ref false in
-  let show_hits = ref false in
+  let format = ref [] in
   let str_list =
     ExtArg.make_arg @@ object
       method store v = Arg.String (tuck v)
@@ -125,7 +125,7 @@ let search config =
     str_list "p" preference "<preference> #set preference";
     may_str "scroll" scroll "<interval> #scroll search";
     bool "c" show_count " output number of hits";
-    bool "h" show_hits " output hit ids";
+    str_list "f" format "<hit|id|source> #map hits according to specified format";
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
@@ -152,6 +152,20 @@ let search config =
     "scroll", !scroll;
     "q", one query;
   ] in
+  let format =
+    let open Elastic_j in
+    List.rev !format |>
+    List.map begin function
+      | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
+      | "id" -> (fun hit -> hit.id)
+      | "type" -> (fun hit -> hit.doc_type)
+      | "index" -> (fun hit -> hit.index)
+      | "routing" -> (fun hit -> Option.default "" hit.routing)
+      | "hit" -> (fun hit -> string_of_option_hit J.write_json hit)
+      | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
+      | s -> Exn.fail "unsupported output format \"%s\"" s
+    end
+  in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; one doc_type; Some ("_search" ^ args); ]) in
@@ -160,8 +174,8 @@ let search config =
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
   | `Ok result ->
-  match !show_count || !show_hits, !scroll with
-  | false, None -> Lwt_io.printl result
+  match !show_count, format, !scroll with
+  | false, [], None -> Lwt_io.printl result
   | _ ->
   let json = "application/json" in
   let scroll_url = host ^ "/_search/scroll" in
@@ -174,7 +188,7 @@ let search config =
     | `Ok _ok -> Lwt.return_unit
   in
   let rec loop result =
-    let { Elastic_j.hits; scroll_id; _ } = Elastic_j.response'_of_string Elastic_j.read_id_hit result in
+    let { Elastic_j.hits; scroll_id; _ } = Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) result in
     match hits with
     | None -> log #error "no hits"; clear_scroll scroll_id
     | Some { Elastic_j.total; hits; _ } ->
@@ -184,16 +198,14 @@ let search config =
       | true -> Lwt_io.printlf "%d" total
     in
     let%lwt () =
-      match !show_hits with
-      | false -> Lwt.return_unit
-      | true ->
-      List.map (fun { Elastic_j.index; doc_type; id; } -> sprintf "/%s/%s/%s" index doc_type id) hits |>
-      Lwt_list.iter_s Lwt_io.printl
-    in
-    let%lwt () =
-      match !show_count || !show_hits with
-      | true -> Lwt.return_unit
-      | false -> Lwt_io.printl result
+      match format with
+      | [] -> Lwt_io.printl result
+      | _ ->
+      Lwt_list.iter_s begin fun hit ->
+        List.map (fun f -> f hit) format |>
+        String.join " " |>
+        Lwt_io.printl
+      end hits
     in
     match hits, !scroll, scroll_id with
     | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
