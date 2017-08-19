@@ -19,13 +19,13 @@ let health config =
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "health [options] <host1 [host2 [host3...]]>\n"; exit 1 in
-  match List.rev !cmd with
-  | [] -> usage ()
-  | hosts ->
+  let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters) in
   let hosts =
+    match List.rev !cmd with
+    | [] -> !!all_hosts
+    | hosts ->
     List.map begin function
-      | "_all" -> List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters
+      | "_all" -> !!all_hosts
       | name -> [ Common.get_host config name; ]
     end hosts |>
     List.concat
