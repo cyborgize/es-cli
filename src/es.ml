@@ -103,6 +103,7 @@ let search config =
   let sort = ref [] in
   let source_include = ref [] in
   let source_exclude = ref [] in
+  let routing = ref [] in
   let scroll = ref None in
   let show_count = ref false in
   let show_hits = ref false in
@@ -119,6 +120,7 @@ let search config =
     str_list "s" sort "<field[:dir]> #set sort order";
     str_list "i" source_include "<field> #include source field";
     str_list "e" source_exclude "<field> #exclude source field";
+    str_list "r" routing "<routing> #set routing";
     may_str "scroll" scroll "<interval> #scroll search";
     bool "c" show_count " output number of hits";
     bool "h" show_hits " output hit ids";
@@ -143,6 +145,7 @@ let search config =
     "sort", csv !sort;
     "_source", csv !source_include;
     "_source_exclude", csv !source_exclude;
+    "routing", csv !routing;
     "scroll", !scroll;
     "q", one query;
   ] in
