@@ -1,7 +1,39 @@
 es-cli
 ======
 
-This project provides a command line utility to query ElasticSearch clusters.
+This project provides a command line tool to query ElasticSearch clusters.
+
+Configuration file
+------------------
+
+The tool will look for a configuration file `$XDG_HOME_CONFIG/es-cli/config.json` when started
+(`$XDG_HOME_CONFIG` will be usually `~/.config`; see [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-0.6.html) for more details).
+
+An example configuration file:
+
+```
+{
+  "clusters": {
+    "cluster1": {
+      "host": "cluster1.mydomain.com:9200"
+    },
+    "cluster2": {
+      "host": "cluster2.mydomain.com:9200"
+    }
+  }
+}
+```
+
+With the above configuration file, it is possible to use alias names instead of full host names, for example:
+
+```
+es health cluster1 # will show health for cluster1.mydomain.com:9200
+es health # will show health for all configured clusters
+```
+
+```
+es search cluster2/myindex
+```
 
 Examples
 --------
