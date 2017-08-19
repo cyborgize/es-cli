@@ -32,8 +32,15 @@ let expand_node =
   in
   expand
 
+let get_xdg_dir ~env dir =
+  try Sys.getenv env with Not_found ->
+  try sprintf "%s/.%s" (Sys.getenv "HOME") dir with Not_found ->
+    Exn.fail "get_xdg_dir: unable to find %s directory" dir
+
+let xdg_config_dir = lazy (get_xdg_dir ~env:"XDG_CONFIG_HOME" "config")
+
 let load_config () =
-  let config_file = Filename.concat !!Nix.xdg_config_dir "es-cli/config.json" in
+  let config_file = Filename.concat !!xdg_config_dir "es-cli/config.json" in
   match Sys.file_exists config_file with
   | false -> { Config_j.clusters = []; }
   | true ->
