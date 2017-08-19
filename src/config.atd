@@ -1,0 +1,9 @@
+
+type config = {
+  ~clusters : (string * cluster_config) list <json repr="object">;
+}
+
+type cluster_config = {
+  ?host : string option;
+  ?nodes : string list option;
+}

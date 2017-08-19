@@ -13,7 +13,7 @@ let usage tools =
   List.sort ~cmp:compare tools |>
   List.iter (fun (s,_) -> fprintf stderr "  %s\n" s)
 
-let health () =
+let health config =
   let cmd = ref [] in
   let args = ExtArg.[
     "--", Rest (tuck cmd), " signal end of options";
@@ -23,6 +23,13 @@ let health () =
   match List.rev !cmd with
   | [] -> usage ()
   | hosts ->
+  let hosts =
+    List.map begin function
+      | "_all" -> List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters
+      | name -> [ Common.get_host config name; ]
+    end hosts |>
+    List.concat
+  in
   Lwt_main.run @@
   let%lwt results =
     Lwt_list.mapi_p begin fun i host ->
@@ -43,7 +50,7 @@ let health () =
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
   Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
-let nodes () =
+let nodes config =
   let cmd = ref [] in
   let check_nodes = ref [] in
   let args = ExtArg.[
@@ -55,6 +62,7 @@ let nodes () =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
+  let host = Common.get_host config host in
   let check_nodes = SS.of_list !check_nodes in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
@@ -83,7 +91,7 @@ let nodes () =
   in
   Lwt.return_unit
 
-let search () =
+let search config =
   let cmd = ref [] in
   let size = ref None in
   let from = ref None in
@@ -111,6 +119,7 @@ let search () =
   | [] -> assert false
   | [_host] -> usage ()
   | host :: index :: doc_type ->
+  let host = Common.get_host config host in
   let one = function [] -> None | [x] -> Some x | _ -> assert false in
   let str = Option.map string_of_int in
   let csv = function [] -> None | l -> Some (String.concat "," l) in
@@ -162,5 +171,6 @@ let () =
   match List.assoc name tools with
   | exception Not_found -> usage tools
   | tool ->
+  let config = Common.load_config () in
   incr Arg.current;
-  tool ()
+  tool config
