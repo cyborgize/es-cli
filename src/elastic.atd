@@ -69,3 +69,14 @@ type scroll = {
 type clear_scroll = {
   scroll_id : string list;
 }
+
+type aliases = {
+  actions : alias_action list;
+}
+
+type alias_action = (string * index_alias) list <json repr="object">
+
+type index_alias = {
+  index : string;
+  alias : string;
+}

@@ -15,6 +15,45 @@ let usage tools =
   List.sort ~cmp:compare tools |>
   List.iter (fun (s,_) -> fprintf stderr "  %s\n" s)
 
+let alias config =
+  let add_remove action =
+    ExtArg.make_arg @@ object
+      method store v =
+        let index = ref "" in
+        Arg.(Tuple [ Set_string index; String (fun alias -> tuck v (action, (!index, alias))); ])
+      method kind = "two strings"
+      method show v =
+        List.map (fun (action, (index, alias)) -> sprintf "%s index %s alias %s" action index alias) !v |>
+        String.concat " "
+    end
+  in
+  let cmd = ref [] in
+  let actions = ref [] in
+  let args = ExtArg.[
+    add_remove "add" "a" actions " add alias";
+    add_remove "remove" "r" actions " remove alias";
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "nodes [options] <host>\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_ -> usage ()
+  | [host] ->
+  let host = Common.get_host config host in
+  let url = sprintf "%s/_aliases" host in
+  let (action, body) =
+    match !actions with
+    | [] -> `GET, None
+    | actions ->
+    let actions = List.map (fun (action, (index, alias)) -> [ action, { Elastic_j.index; alias; }; ]) actions in
+    `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_j.actions; }))
+  in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt ?body action url with
+  | exception exn -> log #error ~exn "alias"; Lwt.fail exn
+  | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
+  | `Ok result -> Lwt_io.printl result
+
 let health config =
   let cmd = ref [] in
   let args = ExtArg.[
@@ -226,6 +265,7 @@ let search config =
 
 let () =
   let tools = [
+    "alias", alias;
     "health", health;
     "nodes", nodes;
     "search", search;
