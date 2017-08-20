@@ -108,6 +108,7 @@ let search config =
   let routing = ref [] in
   let preference = ref [] in
   let scroll = ref None in
+  let query = ref None in
   let show_count = ref false in
   let format = ref [] in
   let str_list =
@@ -126,6 +127,7 @@ let search config =
     str_list "r" routing "<routing> #set routing";
     str_list "p" preference "<preference> #set preference";
     may_str "scroll" scroll "<interval> #scroll search";
+    may_str "query" query "<query> #query using query_string";
     bool "c" show_count " output number of hits";
     str_list "f" format "<hit|id|source> #map hits according to specified format";
     "--", Rest (tuck cmd), " signal end of options";
@@ -134,7 +136,7 @@ let search config =
   let usage () = fprintf stderr "search [options] <host>/<index>[/<doc_type>] [query]\n"; exit 1 in
   match List.rev !cmd with
   | [] | _::_::_::_ -> usage ()
-  | host :: query ->
+  | host :: body_query ->
   match Re2.Regex.split ~max:3 (Re2.Regex.create_exn "/") host with
   | [] -> assert false
   | [_host] -> usage ()
@@ -152,7 +154,7 @@ let search config =
     "routing", csv !routing;
     "preference", csv ~sep:"|" !routing;
     "scroll", !scroll;
-    "q", one query;
+    "q", !query;
   ] in
   let format =
     let open Elastic_j in
@@ -170,9 +172,10 @@ let search config =
   in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
+  let body = match body_query with [] -> None | [query] -> Some (`Raw (json_content_type, query)) | _ -> assert false in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; one doc_type; Some ("_search" ^ args); ]) in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt `POST url with
+  match%lwt Web.http_request_lwt ?body `POST url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
   | `Ok result ->
