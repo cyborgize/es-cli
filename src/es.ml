@@ -7,6 +7,8 @@ module SS = Set.Make(String)
 
 let log = Log.from "es"
 
+let json_content_type = "application/json"
+
 let usage tools =
   fprintf stderr "Usage: %s {<tool>|-help|version}\n" Sys.executable_name;
   fprintf stderr "where <tool> is one of:\n";
@@ -177,13 +179,12 @@ let search config =
   match !show_count, format, !scroll with
   | false, [], None -> Lwt_io.printl result
   | _ ->
-  let json = "application/json" in
   let scroll_url = host ^ "/_search/scroll" in
   let clear_scroll = function
     | None -> Lwt.return_unit
     | Some scroll_id ->
     let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_j.scroll_id = [ scroll_id; ]; } in
-    match%lwt Web.http_request_lwt ~body:(`Raw (json, clear_scroll)) `DELETE scroll_url with
+    match%lwt Web.http_request_lwt ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
     | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
     | `Ok _ok -> Lwt.return_unit
   in
@@ -211,7 +212,7 @@ let search config =
     | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
     | _, Some scroll, Some scroll_id ->
     let scroll = Elastic_j.string_of_scroll { Elastic_j.scroll; scroll_id; } in
-    match%lwt Web.http_request_lwt ~body:(`Raw (json, scroll)) `POST scroll_url with
+    match%lwt Web.http_request_lwt ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
     | `Error error ->
       log #error "scroll error : %s" error;
       let%lwt () = clear_scroll (Some scroll_id) in
