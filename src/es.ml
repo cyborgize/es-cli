@@ -111,11 +111,15 @@ let get config =
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt `GET url with
+  match%lwt Web.http_request_lwt' `GET url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
-  | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
-  | `Ok result ->
+  | `Error code ->
+    let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
+    log #error "get error : %s" error;
+    Lwt.fail_with error
+  | `Ok (code, result) ->
   match format with
+  | _ when code / 100 <> 2 && code <> 404 -> Lwt_io.printl result
   | [] -> Lwt_io.printl result
   | _ ->
   let hit = Elastic_j.option_hit_of_string J.read_json result in
