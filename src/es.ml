@@ -112,7 +112,7 @@ let get config =
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
   match%lwt Web.http_request_lwt' `GET url with
-  | exception exn -> log #error ~exn "search"; Lwt.fail exn
+  | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
     log #error "get error : %s" error;
@@ -160,7 +160,7 @@ let health config =
       ] in
       let url = sprintf "%s/_cat/health?h=%s" host (String.concat "," columns) in
       match%lwt Web.http_request_lwt `GET url with
-      | exception exn -> log #error ~exn "search"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
+      | exception exn -> log #error ~exn "health"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
       | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s error %s\n" host error)
       | `Ok result -> Lwt.return (i, sprintf "%s %s" host result)
     end hosts
@@ -190,7 +190,7 @@ let nodes config =
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
   match%lwt Web.http_request_lwt `GET url with
-  | exception exn -> log #error ~exn "search"; Lwt.fail exn
+  | exception exn -> log #error ~exn "nodes"; Lwt.fail exn
   | `Error error -> log #error "nodes error : %s" error; Lwt.fail_with error
   | `Ok result ->
   J.from_string result |>
