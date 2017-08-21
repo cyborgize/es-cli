@@ -37,12 +37,16 @@ type 'a hits' = {
 
 type 'a hits = 'a list hits'
 
+type response'' = {
+  ?error : error option;
+}
+
 type 'a response' = {
+  inherit response'';
   took: int;
   timed_out: bool;
   shards <json name="_shards"> : shards;
   ?scroll_id <json name="_scroll_id"> : string option;
-  ?error : error option;
   ?hits: 'a hits option;
 }
 

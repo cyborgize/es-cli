@@ -118,9 +118,11 @@ let get config =
     log #error "get error : %s" error;
     Lwt.fail_with error
   | `Ok (code, result) ->
-  match format with
-  | _ when code / 100 <> 2 && code <> 404 -> Lwt_io.printl result
-  | [] -> Lwt_io.printl result
+  let is_error_response result = Elastic_j.((response''_of_string result).error) <> None in
+  let is_severe_error code result = code / 100 <> 2 && (code <> 404 || is_error_response result) in
+  match is_severe_error code result with
+  | exception exn -> log #error ~exn "get"; Lwt.fail exn
+  | is_error when is_error || format = [] -> Lwt_io.printl result
   | _ ->
   let hit = Elastic_j.option_hit_of_string J.read_json result in
   List.map (fun f -> f hit) format |>
