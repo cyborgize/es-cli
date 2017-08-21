@@ -124,7 +124,9 @@ let get config =
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | is_error when is_error || format = [] -> Lwt_io.printl result
   | _ ->
-  let hit = Elastic_j.option_hit_of_string J.read_json result in
+  match Elastic_j.option_hit_of_string J.read_json result with
+  | { Elastic_j.found = false; _ } -> Lwt.return_unit
+  | hit ->
   List.map (fun f -> f hit) format |>
   String.join " " |>
   Lwt_io.printl
