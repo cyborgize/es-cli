@@ -15,6 +15,24 @@ let usage tools =
   List.sort ~cmp:compare tools |>
   List.iter (fun (s,_) -> fprintf stderr "  %s\n" s)
 
+let str_list =
+  ExtArg.make_arg @@ object
+    method store v = Arg.String (tuck v)
+    method kind = "string"
+    method show v = match !v with [] -> "none" | l -> String.concat "," l
+  end
+
+let map_of_format =
+  let open Elastic_j in function
+  | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
+  | "id" -> (fun hit -> hit.id)
+  | "type" -> (fun hit -> hit.doc_type)
+  | "index" -> (fun hit -> hit.index)
+  | "routing" -> (fun hit -> Option.default "" hit.routing)
+  | "hit" -> (fun hit -> string_of_option_hit J.write_json hit)
+  | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
+  | s -> Exn.fail "unsupported output format \"%s\"" s
+
 let alias config =
   let add_remove action =
     ExtArg.make_arg @@ object
@@ -150,13 +168,6 @@ let search config =
   let query = ref None in
   let show_count = ref false in
   let format = ref [] in
-  let str_list =
-    ExtArg.make_arg @@ object
-      method store v = Arg.String (tuck v)
-      method kind = "string"
-      method show v = match !v with [] -> "none" | l -> String.concat "," l
-    end
-  in
   let args = ExtArg.[
     may_int "n" size "<n> #set search limit";
     may_int "o" from "<n> #set search offset";
@@ -195,20 +206,7 @@ let search config =
     "scroll", !scroll;
     "q", !query;
   ] in
-  let format =
-    let open Elastic_j in
-    List.rev !format |>
-    List.map begin function
-      | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
-      | "id" -> (fun hit -> hit.id)
-      | "type" -> (fun hit -> hit.doc_type)
-      | "index" -> (fun hit -> hit.index)
-      | "routing" -> (fun hit -> Option.default "" hit.routing)
-      | "hit" -> (fun hit -> string_of_option_hit J.write_json hit)
-      | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
-      | s -> Exn.fail "unsupported output format \"%s\"" s
-    end
-  in
+  let format = List.map map_of_format (List.rev !format) in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let body = match body_query with [] -> None | [query] -> Some (`Raw (json_content_type, query)) | _ -> assert false in
