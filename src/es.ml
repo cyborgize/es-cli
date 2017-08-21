@@ -72,6 +72,57 @@ let alias config =
   | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
+let get config =
+  let cmd = ref [] in
+  let source_include = ref [] in
+  let source_exclude = ref [] in
+  let routing = ref [] in
+  let preference = ref [] in
+  let show_count = ref false in
+  let format = ref [] in
+  let args = ExtArg.[
+    str_list "i" source_include "<field> #include source field";
+    str_list "e" source_exclude "<field> #exclude source field";
+    str_list "r" routing "<routing> #set routing";
+    str_list "p" preference "<preference> #set preference";
+    bool "c" show_count " output number of hits";
+    str_list "f" format "<hit|id|source> #map hit according to specified format";
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "get [options] <host>/<index>[/<doc_type>/<doc_id>]\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_ -> usage ()
+  | [host] ->
+  match Re2.Regex.split ~max:4 (Re2.Regex.create_exn "/") host with
+  | [] -> assert false
+  | _host :: ([] | [ _; _; ]) -> usage ()
+  | host :: index :: doc ->
+  let host = Common.get_host config host in
+  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
+  let args = [
+    "_source", csv !source_include;
+    "_source_exclude", csv !source_exclude;
+    "routing", csv !routing;
+    "preference", csv ~sep:"|" !routing;
+  ] in
+  let format = match doc with [] -> [] | _ -> List.map map_of_format (List.rev !format) in
+  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
+  let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
+  let url = String.concat "/" (host :: index :: doc) ^ args in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt `GET url with
+  | exception exn -> log #error ~exn "search"; Lwt.fail exn
+  | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
+  | `Ok result ->
+  match format with
+  | [] -> Lwt_io.printl result
+  | _ ->
+  let hit = Elastic_j.option_hit_of_string J.read_json result in
+  List.map (fun f -> f hit) format |>
+  String.join " " |>
+  Lwt_io.printl
+
 let health config =
   let cmd = ref [] in
   let args = ExtArg.[
@@ -264,6 +315,7 @@ let search config =
 let () =
   let tools = [
     "alias", alias;
+    "get", get;
     "health", health;
     "nodes", nodes;
     "search", search;
