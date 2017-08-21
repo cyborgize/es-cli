@@ -166,7 +166,7 @@ let search config =
     str_list "r" routing "<routing> #set routing";
     str_list "p" preference "<preference> #set preference";
     may_str "scroll" scroll "<interval> #scroll search";
-    may_str "query" query "<query> #query using query_string";
+    may_str "q" query "<query> #query using query_string";
     bool "c" show_count " output number of hits";
     str_list "f" format "<hit|id|source> #map hits according to specified format";
     "--", Rest (tuck cmd), " signal end of options";
