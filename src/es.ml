@@ -95,7 +95,7 @@ let get config =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
-  match Re2.Regex.split ~max:4 (Re2.Regex.create_exn "/") host with
+  match Re2.split ~max:3 (Re2.create_exn "/") host with
   | [] -> assert false
   | _host :: ([] | [ _; _; ]) -> usage ()
   | host :: index :: doc ->
