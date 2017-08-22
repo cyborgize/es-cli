@@ -53,7 +53,7 @@ let alias config =
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "nodes [options] <host>\n"; exit 1 in
+  let usage () = fprintf stderr "alias [options] <host>\n"; exit 1 in
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
