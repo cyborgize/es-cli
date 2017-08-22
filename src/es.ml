@@ -3,6 +3,7 @@ open ExtLib
 open Printf
 
 module J = Yojson.Safe
+module Re2 = Re2.Regex
 module SS = Set.Make(String)
 
 let log = Log.from "es"
@@ -243,18 +244,26 @@ let search config =
     "--", Rest (tuck cmd), " signal end of options";
   ] in
   ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "search [options] <host>/<index>[/<doc_type>] [query]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_::_ -> usage ()
-  | host :: body_query ->
-  match Re2.Regex.split ~max:3 (Re2.Regex.create_exn "/") host with
-  | [] -> assert false
-  | [_host] -> usage ()
-  | host :: index :: doc_type ->
-  let host = Common.get_host config host in
+  let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
   let one = function [] -> None | [x] -> Some x | _ -> assert false in
   let int = Option.map string_of_int in
   let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
+  match List.rev !cmd with
+  | [] | _::_::_::_::_ -> usage ()
+  | host :: rest ->
+  let (host, index, doc_type, body_query) =
+    let by_slash = Re2.create_exn "/" in
+    match Re2.split by_slash host, rest with
+    | [], _ | _, _::_::_::_ -> assert false
+    | [_], [] | _::_::_, _::_::_ | _::_::_::_::_, _ -> usage ()
+    | host :: index :: doc_type, body_query -> host, index, one doc_type, one body_query
+    | [host], index :: body_query ->
+    match Re2.split by_slash index with
+    | [] -> assert false
+    | _::_::_::_ -> usage ()
+    | index :: doc_type -> host, index, one doc_type, one body_query
+  in
+  let host = Common.get_host config host in
   let args = [
     "size", int !size;
     "from", int !from;
@@ -269,8 +278,8 @@ let search config =
   let format = List.map map_of_format (List.rev !format) in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
-  let body = match body_query with [] -> None | [query] -> Some (`Raw (json_content_type, query)) | _ -> assert false in
-  let url = String.concat "/" (List.filter_map id [ Some host; Some index; one doc_type; Some ("_search" ^ args); ]) in
+  let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
+  let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
   Lwt_main.run @@
   match%lwt Web.http_request_lwt ?body `POST url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
