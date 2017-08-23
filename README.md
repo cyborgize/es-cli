@@ -1,10 +1,13 @@
-es-cli
-======
+# elasticsearch-cli — Command-line client for Elasticsearch
 
 This project provides a command line tool to query ElasticSearch clusters.
 
-Configuration file
-------------------
+## Installation
+elasticsearch-cli can be installed with `opam`:
+
+    opam install elasticsearch-cli
+
+## Configuration file
 
 The tool will look for a configuration file `$XDG_HOME_CONFIG/es-cli/config.json` when started
 (`$XDG_HOME_CONFIG` will be usually `~/.config`; see [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/basedir-spec-0.6.html) for more details).
@@ -40,8 +43,7 @@ es health # will show health for all configured clusters
 es search cluster2/myindex
 ```
 
-Examples
---------
+## Examples
 
 Check health of multiple clusters:
 
