@@ -1,5 +1,9 @@
-B _build/src
-S src
+B _build/**
 B +threads
+S src
+PKG atdgen
+PKG curl.lwt
+PKG devkit
+PKG lwt.ppx
 PKG mybuild
-PKG lwt.ppx curl.lwt devkit re2 atdgen
+PKG re2
