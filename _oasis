@@ -3,7 +3,7 @@ Name:        elastic-cli
 Version:     1.0
 Synopsis:    Command line client for ElasticSearch
 Authors:     Raman Varabets
-License:     PROP
+License:     GPL-3.0+
 Plugins:     META (0.4), DevFiles (0.4)
 BuildTools:  ocamlbuild
 BuildDepends: threads, lwt.ppx, devkit, re2, atdgen
