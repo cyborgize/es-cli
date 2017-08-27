@@ -58,7 +58,7 @@ let map_of_index_shard_format =
   | "translog_ops" -> (fun _index shard -> `Int shard.translog.total)
   | "translog_ops_recovered" -> (fun _index shard -> `Int shard.translog.recovered)
   | "translog_ops_percent" -> (fun _index shard -> `String shard.translog.percent)
-  | s -> Exn.fail "unknown hit field \"%s\"" s
+  | s -> Exn.fail "unknown index shard field \"%s\"" s
 
 let default_index_shard_format = [
   "index"; "shard"; "time"; "type"; "stage";
@@ -156,7 +156,13 @@ let get config =
     "routing", csv !routing;
     "preference", csv ~sep:"|" !routing;
   ] in
-  let format = match doc with [] -> [] | _ -> List.rev_map map_of_hit_format !format in
+  let format =
+    match doc with
+    | [] -> []
+    | _ ->
+    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) !format |>
+    List.concat
+  in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (host :: index :: doc) ^ args in
@@ -294,7 +300,10 @@ let recovery config =
   | [] -> usage ()
   | host :: indices ->
   let format = match !format with [] -> default_index_shard_format | format -> List.rev format in
-  let format = List.map map_of_index_shard_format format in
+  let format =
+    List.map (fun format -> List.map map_of_index_shard_format (Stre.nsplitc format ',')) format |>
+    List.concat
+  in
   let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_include in
   let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_exclude in
   let host = Common.get_host config host in
@@ -407,7 +416,10 @@ let search config =
     "scroll", !scroll;
     "q", !query;
   ] in
-  let format = List.rev_map map_of_hit_format !format in
+  let format =
+    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) !format |>
+    List.concat
+  in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
