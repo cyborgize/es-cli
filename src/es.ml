@@ -216,6 +216,25 @@ let nodes config =
   in
   Lwt.return_unit
 
+let refresh config =
+  let cmd = ref [] in
+  let args = ExtArg.[
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
+  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
+  match List.rev !cmd with
+  | [] -> usage ()
+  | host :: indices ->
+  let host = Common.get_host config host in
+  let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_refresh"; ]) in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt `POST url with
+  | exception exn -> log #error ~exn "refresh"; Lwt.fail exn
+  | `Error error -> log #error "refresh error : %s" error; Lwt.fail_with error
+  | `Ok result -> Lwt_io.printl result
+
 let search config =
   let cmd = ref [] in
   let size = ref None in
@@ -336,6 +355,7 @@ let () =
     "get", get;
     "health", health;
     "nodes", nodes;
+    "refresh", refresh;
     "search", search;
   ] in
   match Action.args with
