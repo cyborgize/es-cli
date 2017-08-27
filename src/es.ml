@@ -23,7 +23,7 @@ let str_list =
     method show v = match !v with [] -> "none" | l -> String.concat "," l
   end
 
-let map_of_format =
+let map_of_hit_format =
   let open Elastic_j in function
   | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
   | "id" -> (fun hit -> hit.id)
@@ -32,7 +32,7 @@ let map_of_format =
   | "routing" -> (fun hit -> Option.default "" hit.routing)
   | "hit" -> (fun hit -> string_of_option_hit J.write_json hit)
   | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
-  | s -> Exn.fail "unsupported output format \"%s\"" s
+  | s -> Exn.fail "unknown hit field \"%s\"" s
 
 let alias config =
   let add_remove action =
@@ -108,7 +108,7 @@ let get config =
     "routing", csv !routing;
     "preference", csv ~sep:"|" !routing;
   ] in
-  let format = match doc with [] -> [] | _ -> List.map map_of_format (List.rev !format) in
+  let format = match doc with [] -> [] | _ -> List.map map_of_hit_format (List.rev !format) in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (host :: index :: doc) ^ args in
@@ -127,6 +127,7 @@ let get config =
   | is_error when is_error || format = [] -> Lwt_io.printl result
   | _ ->
   match Elastic_j.option_hit_of_string J.read_json result with
+  | exception exn -> log #error ~exn "get %s" result; Lwt.fail exn
   | { Elastic_j.found = false; _ } -> Lwt.return_unit
   | hit ->
   List.map (fun f -> f hit) format |>
@@ -294,7 +295,7 @@ let search config =
     "scroll", !scroll;
     "q", !query;
   ] in
-  let format = List.map map_of_format (List.rev !format) in
+  let format = List.map map_of_hit_format (List.rev !format) in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
