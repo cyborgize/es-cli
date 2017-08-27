@@ -84,3 +84,64 @@ type index_alias = {
   index : string;
   alias : string;
 }
+
+type indices_shards = (string * index_shards) list <json repr="object">
+
+type index_shards = {
+  shards : index_shard list;
+}
+
+type index_shard = {
+  id : int;
+  kind <json name="type"> : string;
+  stage : string;
+  primary : bool;
+  source : shard_host;
+  target : shard_host;
+  index : shard_index;
+  translog : shard_translog;
+  verify_index : shard_verify_index;
+}
+
+type shard_host = {
+  ?id : string option;
+  ?host : string option;
+  ?transport_address : string option;
+  ?ip : string option;
+  ?name : string option;
+}
+
+type shard_index = {
+  size : shard_index_size;
+  files : shard_index_files;
+  total_time_in_millis : int;
+  source_throttle_time_in_millis : int;
+  target_throttle_time_in_millis : int;
+}
+
+type shard_index_size = {
+  total_in_bytes : int;
+  reused_in_bytes : int;
+  recovered_in_bytes : int;
+  percent : string;
+}
+
+type shard_index_files = {
+  total : int;
+  reused : int;
+  recovered : int;
+  percent : string;
+}
+
+type shard_translog = {
+  recovered : int;
+  total : int;
+  percent : string;
+  total_on_start : int;
+  total_time_in_millis : int;
+}
+
+type shard_verify_index = {
+  check_index_time_in_millis : int;
+  total_time_in_millis : int;
+}

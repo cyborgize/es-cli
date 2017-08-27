@@ -34,6 +34,56 @@ let map_of_hit_format =
   | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
   | s -> Exn.fail "unknown hit field \"%s\"" s
 
+let map_of_index_shard_format =
+  let open Elastic_j in function
+  | "index" -> (fun index (shard : index_shard) -> `String index)
+  | "shard" -> (fun _index shard -> `Int shard.id)
+  | "time" -> (fun _index shard -> `Duration (Time.msec shard.index.total_time_in_millis))
+  | "type" -> (fun _index shard -> `Symbol shard.kind)
+  | "stage" -> (fun _index shard -> `Symbol shard.stage)
+  | "source_host" -> (fun _index shard -> match shard.source.host with Some host -> `String host | None -> `None)
+  | "source_node" -> (fun _index shard -> match shard.source.name with Some name -> `String name | None -> `None)
+  | "target_host" -> (fun _index shard -> match shard.target.host with Some host -> `String host | None -> `None)
+  | "target_node" -> (fun _index shard -> match shard.target.name with Some name -> `String name | None -> `None)
+  | "repository" -> (fun _index _shard -> `None) (* FIXME what is repository? *)
+  | "snapshot" -> (fun _index _shard -> `None) (* FIXME what is snapshot? *)
+  | "files" -> (fun _index shard -> `Int shard.index.files.total) (* FIXME what's the difference w/ files_total? *)
+  | "files_recovered" -> (fun _index shard -> `Int shard.index.files.recovered)
+  | "files_percent" -> (fun _index shard -> `String shard.index.files.percent)
+  | "files_total" -> (fun _index shard -> `Int shard.index.files.total)
+  | "bytes" -> (fun _index shard -> `Int shard.index.size.total_in_bytes) (* FIXME what's the difference w/ bytes_total? *)
+  | "bytes_recovered" -> (fun _index shard -> `Int shard.index.size.recovered_in_bytes)
+  | "bytes_percent" -> (fun _index shard -> `String shard.index.size.percent)
+  | "bytes_total" -> (fun _index shard -> `Int shard.index.size.total_in_bytes)
+  | "translog_ops" -> (fun _index shard -> `Int shard.translog.total)
+  | "translog_ops_recovered" -> (fun _index shard -> `Int shard.translog.recovered)
+  | "translog_ops_percent" -> (fun _index shard -> `String shard.translog.percent)
+  | s -> Exn.fail "unknown hit field \"%s\"" s
+
+let default_index_shard_format = [
+  "index"; "shard"; "time"; "type"; "stage";
+  "source_host"; "source_node"; "target_host"; "target_node";
+  "repository"; "snapshot";
+  "files"; "files_recovered"; "files_percent"; "files_total";
+  "bytes"; "bytes_recovered"; "bytes_percent"; "bytes_total";
+  "translog_ops"; "translog_ops_recovered"; "translog_ops_percent";
+]
+
+let map_show = function
+  | `String x | `Symbol x -> x
+  | `Int x -> string_of_int x
+  | `Float x -> string_of_float x
+  | `Duration x -> Time.compact_duration x
+  | `None -> "n/a"
+
+let compare_fmt = function
+  | `String x -> String.equal x
+  | `Symbol x -> String.equal (String.lowercase_ascii x) $ String.lowercase_ascii
+  | `Int x -> Factor.Int.equal x $ int_of_string
+  | `Float x -> Factor.Float.equal x $ float_of_string
+  | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
+  | `None -> (fun _ -> false)
+
 let alias config =
   let add_remove action =
     ExtArg.make_arg @@ object
@@ -217,6 +267,70 @@ let nodes config =
   in
   Lwt.return_unit
 
+let recovery config =
+  let two_str_list =
+    ExtArg.make_arg @@ object
+      method store v =
+        let s1 = ref "" in
+        Arg.(Tuple [ Set_string s1; String (fun s2 -> tuck v (!s1, s2)); ])
+      method kind = "two strings"
+      method show v =
+        List.map (fun (s1, s2) -> s1 ^ " " ^ s2) !v |>
+        String.concat " "
+    end
+  in
+  let cmd = ref [] in
+  let format = ref [] in
+  let filter_include = ref [] in
+  let filter_exclude = ref [] in
+  let args = ExtArg.[
+    str_list "f" format "<index|shard|type|stage|...> #map hit according to specified format";
+    two_str_list "i" filter_include "<column> <value> #include only shards matching the filter";
+    two_str_list "e" filter_exclude "<column> <value> #exclude shards matching the filter";
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "recovery [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
+  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
+  match List.rev !cmd with
+  | [] -> usage ()
+  | host :: indices ->
+  let format = match !format with [] -> default_index_shard_format | format -> format in
+  let format = List.map map_of_index_shard_format format in
+  let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_include in
+  let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_exclude in
+  let host = Common.get_host config host in
+  let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_recovery"; ]) in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt `GET url with
+  | exception exn -> log #error ~exn "recovery"; Lwt.fail exn
+  | `Error error -> log #error "recovery error : %s" error; Lwt.fail_with error
+  | `Ok result ->
+  match Elastic_j.indices_shards_of_string result with
+  | exception exn -> log #error ~exn "recovery %s" result; Lwt.fail exn
+  | indices ->
+  let indices =
+    match filter_include, filter_exclude with
+    | [], [] -> indices
+    | _ ->
+    List.map begin fun (index, { Elastic_j.shards; }) ->
+      let shards =
+        List.filter begin fun shard ->
+          List.for_all (fun (f, v) -> compare_fmt (f index shard) v) filter_include &&
+          not (List.exists (fun (f, v) -> compare_fmt (f index shard) v) filter_exclude)
+        end shards
+      in
+      index, { Elastic_j.shards; }
+    end indices
+  in
+  Lwt_list.iter_s begin fun (index, { Elastic_j.shards; }) ->
+    Lwt_list.iter_s begin fun shard ->
+      List.map (fun f -> map_show (f index shard)) format |>
+      String.concat " " |>
+      Lwt_io.printl
+    end shards
+  end indices
+
 let refresh config =
   let cmd = ref [] in
   let args = ExtArg.[
@@ -356,6 +470,7 @@ let () =
     "get", get;
     "health", health;
     "nodes", nodes;
+    "recovery", recovery;
     "refresh", refresh;
     "search", search;
   ] in
