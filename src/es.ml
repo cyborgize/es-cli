@@ -143,9 +143,9 @@ let get config =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
-  match Re2.split ~max:3 (Re2.create_exn "/") host with
+  match Re2.split (Re2.create_exn "/") host with
   | [] -> assert false
-  | _host :: ([] | [ _; _; ]) -> usage ()
+  | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
   let host = Common.get_host config host in
   let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
