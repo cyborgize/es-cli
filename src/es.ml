@@ -295,7 +295,7 @@ let recovery config =
   match List.rev !cmd with
   | [] -> usage ()
   | host :: indices ->
-  let format = match !format with [] -> default_index_shard_format | format -> format in
+  let format = match !format with [] -> default_index_shard_format | format -> List.rev format in
   let format = List.map map_of_index_shard_format format in
   let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_include in
   let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_exclude in
