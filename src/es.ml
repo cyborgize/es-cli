@@ -271,6 +271,34 @@ let nodes config =
   in
   Lwt.return_unit
 
+let put config =
+  let cmd = ref [] in
+  let routing = ref None in
+  let args = ExtArg.[
+    may_str "r" routing "<routing> #set routing";
+    "--", Rest (tuck cmd), " signal end of options";
+  ] in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "put [options] <host>/<index>/<doc_type>[/<doc_id>] <document>\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_::_ -> usage ()
+  | host :: body ->
+  match Re2.split (Re2.create_exn "/") host with
+  | [] -> assert false
+  | _host :: ([] | [_] | _::_::_::_::_) -> usage ()
+  | host :: index :: doc ->
+  let host = Common.get_host config host in
+  let args = [ "routing", !routing; ] in
+  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
+  let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
+  let url = String.concat "/" (host :: index :: doc) ^ args in
+  Lwt_main.run @@
+  let%lwt body = match body with [body] -> Lwt.return body | [] -> Lwt_io.read Lwt_io.stdin | _ -> assert%lwt false in
+  match%lwt Web.http_request_lwt ~body:(`Raw (json_content_type, body)) `PUT url with
+  | exception exn -> log #error ~exn "put"; Lwt.fail exn
+  | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
+  | `Ok result -> Lwt_io.printl result
+
 let recovery config =
   let two_str_list =
     ExtArg.make_arg @@ object
@@ -480,6 +508,7 @@ let () =
     "get", get;
     "health", health;
     "nodes", nodes;
+    "put", put;
     "recovery", recovery;
     "refresh", refresh;
     "search", search;

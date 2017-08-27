@@ -75,6 +75,20 @@ Expect data0...data9, client0...client4 and master nodes to be present):
 es nodes cluster1.mydomain.com:9200 -h data{0..9} master client{0..4}
 ```
 
+### Put document with or without id
+
+```
+es put cluster1.mydomain.com:9200/myindex/doctype/docid '{ "first_name": "John", "last_name": "Doe" }'
+```
+
+```
+es put cluster1.mydomain.com:9200/myindex/doctype '{ "first_name": "Jane", "last_name": "Doe" }'
+```
+
+```
+echo '{ "first_name": "Johnny", "last_name": "Doe" }' | es put cluster1.mydomain.com:9200/myindex/doctype/docid2
+```
+
 ### Check shard recovery status
 
 Display shards which are not in `DONE` stage:
