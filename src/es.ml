@@ -491,8 +491,9 @@ let search config =
       | true -> Lwt_io.printlf "%d" total
     in
     let%lwt () =
-      match format with
-      | [] -> Lwt_io.printl result
+      match format, show_count with
+      | [], true -> Lwt.return_unit
+      | [], false -> Lwt_io.printl result
       | _ ->
       Lwt_list.iter_s begin fun hit ->
         List.map (fun f -> f hit) format |>
