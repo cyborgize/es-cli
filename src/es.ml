@@ -10,9 +10,15 @@ let log = Log.from "es"
 
 let json_content_type = "application/json"
 
+let cmd = ref []
+
 let verbose = ref false
 
-let arg_verbose = ExtArg.bool "v" verbose " log http requests"
+let args =
+  ExtArg.[
+    bool "v" verbose " log http requests";
+    "--", Rest (tuck cmd), " signal end of options";
+  ]
 
 let usage tools =
   fprintf stderr "Usage: %s {<tool>|-help|version}\n" Sys.executable_name;
@@ -102,12 +108,12 @@ let alias config =
   in
   let cmd = ref [] in
   let actions = ref [] in
-  let args = ExtArg.[
-    add_remove "add" "a" actions " add alias";
-    add_remove "remove" "r" actions " remove alias";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    add_remove "add" "a" actions " add alias" ::
+    add_remove "remove" "r" actions " remove alias" ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "alias [options] <host>\n"; exit 1 in
   match List.rev !cmd with
@@ -135,15 +141,15 @@ let get config =
   let routing = ref [] in
   let preference = ref [] in
   let format = ref [] in
-  let args = ExtArg.[
-    str_list "i" source_include "<field> #include source field";
-    str_list "e" source_exclude "<field> #exclude source field";
-    str_list "r" routing "<routing> #set routing";
-    str_list "p" preference "<preference> #set preference";
-    str_list "f" format "<hit|id|source> #map hit according to specified format";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    str_list "i" source_include "<field> #include source field" ::
+    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "r" routing "<routing> #set routing" ::
+    str_list "p" preference "<preference> #set preference" ::
+    str_list "f" format "<hit|id|source> #map hit according to specified format" ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "get [options] <host>/<index>[/<doc_type>/<doc_id>]\n"; exit 1 in
   match List.rev !cmd with
@@ -195,10 +201,6 @@ let get config =
 
 let health config =
   let cmd = ref [] in
-  let args = ExtArg.[
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
   ExtArg.parse ~f:(tuck cmd) args;
   let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters) in
   let hosts =
@@ -234,11 +236,11 @@ let health config =
 let nodes config =
   let cmd = ref [] in
   let check_nodes = ref [] in
-  let args = ExtArg.[
-    "-h", Rest (tuck check_nodes), "<node1 [node 2 [node 3...]]> #check presence of specified nodes";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    ("-h", Rest (tuck check_nodes), "<node1 [node 2 [node 3...]]> #check presence of specified nodes") ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "nodes [options] <host>\n"; exit 1 in
   match List.rev !cmd with
@@ -281,11 +283,11 @@ let nodes config =
 let put config =
   let cmd = ref [] in
   let routing = ref None in
-  let args = ExtArg.[
-    may_str "r" routing "<routing> #set routing";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    may_str "r" routing "<routing> #set routing" ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "put [options] <host>/<index>/<doc_type>[/<doc_id>] <document>\n"; exit 1 in
   match List.rev !cmd with
@@ -323,13 +325,13 @@ let recovery config =
   let format = ref [] in
   let filter_include = ref [] in
   let filter_exclude = ref [] in
-  let args = ExtArg.[
-    str_list "f" format "<index|shard|type|stage|...> #map hit according to specified format";
-    two_str_list "i" filter_include "<column> <value> #include only shards matching the filter";
-    two_str_list "e" filter_exclude "<column> <value> #exclude shards matching the filter";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    str_list "f" format "<index|shard|type|stage|...> #map hit according to specified format" ::
+    two_str_list "i" filter_include "<column> <value> #include only shards matching the filter" ::
+    two_str_list "e" filter_exclude "<column> <value> #exclude shards matching the filter" ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "recovery [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
   let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
@@ -377,10 +379,6 @@ let recovery config =
 
 let refresh config =
   let cmd = ref [] in
-  let args = ExtArg.[
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
   let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
@@ -408,21 +406,21 @@ let search config =
   let query = ref None in
   let show_count = ref false in
   let format = ref [] in
-  let args = ExtArg.[
-    may_int "n" size "<n> #set search limit";
-    may_int "o" from "<n> #set search offset";
-    str_list "s" sort "<field[:dir]> #set sort order";
-    str_list "i" source_include "<field> #include source field";
-    str_list "e" source_exclude "<field> #exclude source field";
-    str_list "r" routing "<routing> #set routing";
-    str_list "p" preference "<preference> #set preference";
-    may_str "scroll" scroll "<interval> #scroll search";
-    may_str "q" query "<query> #query using query_string";
-    bool "c" show_count " output number of hits";
-    str_list "f" format "<hit|id|source> #map hits according to specified format";
-    arg_verbose;
-    "--", Rest (tuck cmd), " signal end of options";
-  ] in
+  let args =
+    let open ExtArg in
+    may_int "n" size "<n> #set search limit" ::
+    may_int "o" from "<n> #set search offset" ::
+    str_list "s" sort "<field[:dir]> #set sort order" ::
+    str_list "i" source_include "<field> #include source field" ::
+    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "r" routing "<routing> #set routing" ::
+    str_list "p" preference "<preference> #set preference" ::
+    may_str "scroll" scroll "<interval> #scroll search" ::
+    may_str "q" query "<query> #query using query_string" ::
+    bool "c" show_count " output number of hits" ::
+    str_list "f" format "<hit|id|source> #map hits according to specified format" ::
+    args
+  in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
   let one = function [] -> None | [x] -> Some x | _ -> assert false in
