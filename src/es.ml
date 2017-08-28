@@ -150,8 +150,7 @@ let get config =
   let host = Common.get_host config host in
   let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   let args = [
-    "_source", (if !source_exclude = [] then csv !source_include else None);
-    "_source_include", (if !source_exclude = [] then None else csv !source_include);
+    (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
     "_source_exclude", csv !source_exclude;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !routing;
@@ -437,8 +436,8 @@ let search config =
     "size", int !size;
     "from", int !from;
     "sort", csv !sort;
-    "_source", (if !source_exclude = [] then csv !source_include else None);
-    "_source_include", (if !source_exclude = [] then None else csv !source_include);
+    (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
+    "_source_exclude", csv !source_exclude;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !routing;
     "scroll", !scroll;
