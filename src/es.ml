@@ -165,7 +165,7 @@ let get config =
     (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
     "_source_exclude", csv !source_exclude;
     "routing", csv !routing;
-    "preference", csv ~sep:"|" !routing;
+    "preference", csv ~sep:"|" !preference;
   ] in
   let format =
     match doc with
@@ -449,7 +449,7 @@ let search config =
     (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
     "_source_exclude", csv !source_exclude;
     "routing", csv !routing;
-    "preference", csv ~sep:"|" !routing;
+    "preference", csv ~sep:"|" !preference;
     "scroll", !scroll;
     "q", !query;
   ] in
