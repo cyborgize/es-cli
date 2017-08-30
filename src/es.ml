@@ -389,76 +389,34 @@ let refresh config =
   | `Error error -> log #error "refresh error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let search config =
-  let size = ref None in
-  let from = ref None in
-  let sort = ref [] in
-  let source_include = ref [] in
-  let source_exclude = ref [] in
-  let routing = ref [] in
-  let preference = ref [] in
-  let scroll = ref None in
-  let query = ref None in
-  let show_count = ref false in
-  let format = ref [] in
-  let args =
-    let open ExtArg in
-    may_int "n" size "<n> #set search limit" ::
-    may_int "o" from "<n> #set search offset" ::
-    str_list "s" sort "<field[:dir]> #set sort order" ::
-    str_list "i" source_include "<field> #include source field" ::
-    str_list "e" source_exclude "<field> #exclude source field" ::
-    str_list "r" routing "<routing> #set routing" ::
-    str_list "p" preference "<preference> #set preference" ::
-    may_str "scroll" scroll "<interval> #scroll search" ::
-    may_str "q" query "<query> #query using query_string" ::
-    bool "c" show_count " output number of hits" ::
-    str_list "f" format "<hit|id|source> #map hits according to specified format" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_::_::_ -> usage ()
-  | host :: rest ->
-  let (host, index, doc_type, body_query) =
-    let by_slash = Re2.create_exn "/" in
-    match Re2.split by_slash host, rest with
-    | [], _ | _, _::_::_::_ -> assert false
-    | [_], [] | _::_::_, _::_::_ | _::_::_::_::_, _ -> usage ()
-    | host :: index :: doc_type, body_query -> host, index, one doc_type, one body_query
-    | [host], index :: body_query ->
-    match Re2.split by_slash index with
-    | [] -> assert false
-    | _::_::_::_ -> usage ()
-    | index :: doc_type -> host, index, one doc_type, one body_query
-  in
+let search' config params =
+  let { Plugin_t.host; index; doc_type; body; _ } = params in
+  let { Plugin_t.size; from; sort; source_include; source_exclude; routing; preference; scroll; query; show_count; format; _ } = params in
   let host = Common.get_host config host in
   let args = [
-    "size", int !size;
-    "from", int !from;
-    "sort", csv !sort;
-    (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
-    "_source_exclude", csv !source_exclude;
-    "routing", csv !routing;
-    "preference", csv ~sep:"|" !preference;
-    "scroll", !scroll;
-    "q", !query;
+    "size", int size;
+    "from", int from;
+    "sort", csv sort;
+    (if source_exclude = [] then "_source" else "_source_include"), csv source_include;
+    "_source_exclude", csv source_exclude;
+    "routing", csv routing;
+    "preference", csv ~sep:"|" preference;
+    "scroll", scroll;
+    "q", query;
   ] in
   let format =
-    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) !format |>
+    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) format |>
     List.concat
   in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
-  let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
+  let body = match body with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
-  Lwt_main.run @@
   match%lwt Web.http_request_lwt ~verbose:!verbose ?body `POST url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
   | `Ok result ->
-  match !show_count, format, !scroll with
+  match show_count, format, scroll with
   | false, [], None -> Lwt_io.printl result
   | show_count, format, scroll ->
   let scroll_url = host ^ "/_search/scroll" in
@@ -504,11 +462,130 @@ let search config =
   in
   loop result
 
+let search config =
+  let size = ref None in
+  let from = ref None in
+  let sort = ref [] in
+  let source_include = ref [] in
+  let source_exclude = ref [] in
+  let routing = ref [] in
+  let preference = ref [] in
+  let scroll = ref None in
+  let query = ref None in
+  let show_count = ref false in
+  let format = ref [] in
+  let args =
+    let open ExtArg in
+    may_int "n" size "<n> #set search limit" ::
+    may_int "o" from "<n> #set search offset" ::
+    str_list "s" sort "<field[:dir]> #set sort order" ::
+    str_list "i" source_include "<field> #include source field" ::
+    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "r" routing "<routing> #set routing" ::
+    str_list "p" preference "<preference> #set preference" ::
+    may_str "scroll" scroll "<interval> #scroll search" ::
+    may_str "q" query "<query> #query using query_string" ::
+    bool "c" show_count " output number of hits" ::
+    str_list "f" format "<hit|id|source> #map hits according to specified format" ::
+    args
+  in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
+  match List.rev !cmd with
+  | [] | _::_::_::_::_ -> usage ()
+  | host :: rest ->
+  let (host, index, doc_type, body) =
+    let by_slash = Re2.create_exn "/" in
+    match Re2.split by_slash host, rest with
+    | [], _ | _, _::_::_::_ -> assert false
+    | [_], [] | _::_::_, _::_::_ | _::_::_::_::_, _ -> usage ()
+    | host :: index :: doc_type, body -> host, index, one doc_type, one body
+    | [host], index :: body ->
+    match Re2.split by_slash index with
+    | [] -> assert false
+    | _::_::_::_ -> usage ()
+    | index :: doc_type -> host, index, one doc_type, one body
+  in
+  Lwt_main.run @@
+  search' config {
+    Plugin_t.host; index; doc_type; body;
+    size = !size;
+    from = !from;
+    sort = !sort;
+    source_include = !source_include;
+    source_exclude = !source_exclude;
+    routing = !routing;
+    preference = !preference;
+    scroll = !scroll;
+    query = !query;
+    show_count = !show_count;
+    format = !format;
+  }
+
+let lookup config =
+  let size = ref None in
+  let from = ref None in
+  let sort = ref [] in
+  let source_include = ref [] in
+  let source_exclude = ref [] in
+  let routing = ref [] in
+  let preference = ref [] in
+  let scroll = ref None in
+  let show_count = ref false in
+  let format = ref [] in
+  let args =
+    let open ExtArg in
+    may_int "n" size "<n> #set search limit" ::
+    may_int "o" from "<n> #set search offset" ::
+    str_list "s" sort "<field[:dir]> #set sort order" ::
+    str_list "i" source_include "<field> #include source field" ::
+    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "r" routing "<routing> #set routing" ::
+    str_list "p" preference "<preference> #set preference" ::
+    may_str "scroll" scroll "<interval> #scroll search" ::
+    bool "c" show_count " output number of hits" ::
+    str_list "f" format "<hit|id|source> #map hits according to specified format" ::
+    args
+  in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "lookup <name> [<lookup-specific options>...]\n"; exit 1 in
+  match List.rev !cmd with
+  | [] -> usage ()
+  | name :: params ->
+  let exe_name = sprintf "es-lookup-%s" name in
+  Lwt_main.run @@
+  match%lwt Lwt_process.pmap ("", Array.of_list (exe_name :: params)) "{}" with
+  | exception exn -> log #error ~exn "%s %s" exe_name (Stre.catmap ~sep:" " Filename.quote params); Lwt.fail exn
+  | "" ->
+    (* FIXME reimplement pmap with process status code check *)
+    log #error "%s does not exist or did not return lookup response" exe_name;
+    Exn_lwt.fail "%s" exe_name
+  | response ->
+  match Plugin_j.lookup_response_of_string response with
+  | exception exn -> log #error ~exn "%s %s" exe_name response; Lwt.fail exn
+  | { Plugin_t.action; } ->
+  match action with
+  | `Search params ->
+  search' config {
+    params with
+    Plugin_t.size = !size;
+    from = !from;
+    sort = !sort;
+    source_include = !source_include;
+    source_exclude = !source_exclude;
+    routing = !routing;
+    preference = !preference;
+    scroll = !scroll;
+    show_count = !show_count;
+    format = !format;
+  }
+
 let () =
   let tools = [
     "alias", alias;
     "get", get;
     "health", health;
+    "lookup", lookup;
     "nodes", nodes;
     "put", put;
     "recovery", recovery;

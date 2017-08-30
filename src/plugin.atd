@@ -1,0 +1,28 @@
+
+type json <ocaml module="Yojson.Safe" t="json"> = abstract
+
+type lookup_response = {
+  params <ocaml name="action"> <json tag_field="action"> : action;
+}
+
+type action = [
+  | Search <json name="search"> of search
+]
+
+type search = {
+  host : string;
+  index : string;
+  ?doc_type : string option;
+  ?body : string option;
+  ?size : int option;
+  ?from : int option;
+  ~sort : string list;
+  ~source_include : string list;
+  ~source_exclude : string list;
+  ~routing : string list;
+  ~preference : string list;
+  ?scroll : string option;
+  ?query : string option;
+  ~show_count : bool;
+  ~format : string list;
+}
