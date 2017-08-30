@@ -33,6 +33,12 @@ let str_list =
     method show v = match !v with [] -> "none" | l -> String.concat "," l
   end
 
+let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l)
+
+let int = Option.map string_of_int
+
+let one = function [] -> None | [x] -> Some x | _ -> assert false
+
 let map_of_hit_format =
   let open Elastic_j in function
   | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
@@ -160,7 +166,6 @@ let get config =
   | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
   let host = Common.get_host config host in
-  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   let args = [
     (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
     "_source_exclude", csv !source_exclude;
@@ -334,7 +339,6 @@ let recovery config =
   in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "recovery [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
-  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   match List.rev !cmd with
   | [] -> usage ()
   | host :: indices ->
@@ -381,7 +385,6 @@ let refresh config =
   let cmd = ref [] in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
-  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   match List.rev !cmd with
   | [] -> usage ()
   | host :: indices ->
@@ -423,9 +426,6 @@ let search config =
   in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
-  let one = function [] -> None | [x] -> Some x | _ -> assert false in
-  let int = Option.map string_of_int in
-  let csv ?(sep=",") = function [] -> None | l -> Some (String.concat sep l) in
   match List.rev !cmd with
   | [] | _::_::_::_::_ -> usage ()
   | host :: rest ->
