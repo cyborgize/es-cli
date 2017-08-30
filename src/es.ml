@@ -112,7 +112,6 @@ let alias config =
         String.concat " "
     end
   in
-  let cmd = ref [] in
   let actions = ref [] in
   let args =
     let open ExtArg in
@@ -141,7 +140,6 @@ let alias config =
   | `Ok result -> Lwt_io.printl result
 
 let get config =
-  let cmd = ref [] in
   let source_include = ref [] in
   let source_exclude = ref [] in
   let routing = ref [] in
@@ -205,7 +203,6 @@ let get config =
   Lwt_io.printl
 
 let health config =
-  let cmd = ref [] in
   ExtArg.parse ~f:(tuck cmd) args;
   let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters) in
   let hosts =
@@ -239,7 +236,6 @@ let health config =
   Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
 let nodes config =
-  let cmd = ref [] in
   let check_nodes = ref [] in
   let args =
     let open ExtArg in
@@ -286,7 +282,6 @@ let nodes config =
   Lwt.return_unit
 
 let put config =
-  let cmd = ref [] in
   let routing = ref None in
   let args =
     let open ExtArg in
@@ -326,7 +321,6 @@ let recovery config =
         String.concat " "
     end
   in
-  let cmd = ref [] in
   let format = ref [] in
   let filter_include = ref [] in
   let filter_exclude = ref [] in
@@ -382,7 +376,6 @@ let recovery config =
   end indices
 
 let refresh config =
-  let cmd = ref [] in
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
   match List.rev !cmd with
@@ -397,7 +390,6 @@ let refresh config =
   | `Ok result -> Lwt_io.printl result
 
 let search config =
-  let cmd = ref [] in
   let size = ref None in
   let from = ref None in
   let sort = ref [] in
