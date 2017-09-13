@@ -410,7 +410,7 @@ let search config =
     str_list "e" source_exclude "<field> #exclude source field" ::
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
-    may_str "scroll" scroll "<interval> #scroll search" ::
+    may_str "S" scroll "<interval> #scroll search" ::
     may_str "q" query "<query> #query using query_string" ::
     bool "c" show_count " output number of hits" ::
     str_list "f" format "<hit|id|source> #map hits according to specified format" ::
