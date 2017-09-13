@@ -1,0 +1,4 @@
+
+type json <ocaml module="Yojson.Safe" t="json"> = abstract
+
+type assoc = (string * json) list <json repr="object">

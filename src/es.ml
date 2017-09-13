@@ -398,6 +398,8 @@ let search config =
   let routing = ref [] in
   let preference = ref [] in
   let scroll = ref None in
+  let slice_id = ref None in
+  let slice_max = ref None in
   let query = ref None in
   let show_count = ref false in
   let format = ref [] in
@@ -411,6 +413,8 @@ let search config =
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
     may_str "S" scroll "<interval> #scroll search" ::
+    may_int "N" slice_max "<n> #specify number of slices for sliced scroll" ::
+    may_int "I" slice_id "<id> #specify slice id for sliced scroll" ::
     may_str "q" query "<query> #query using query_string" ::
     bool "c" show_count " output number of hits" ::
     str_list "f" format "<hit|id|source> #map hits according to specified format" ::
@@ -451,6 +455,18 @@ let search config =
   in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
+  let body_query =
+    match !slice_id, !slice_max with
+    | None, _ | _, None -> body_query
+    | Some slice_id, Some slice_max ->
+    let slice = "slice", `Assoc [ "id", `Int slice_id; "max", `Int slice_max; ] in
+    match body_query with
+    | None -> Some (Util_j.string_of_assoc [slice])
+    | Some body ->
+    let body = Util_j.assoc_of_string body in
+    let body = slice :: List.filter (function "slice", _ -> false | _ -> true) body in
+    Some (Util_j.string_of_assoc body)
+  in
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
   Lwt_main.run @@
