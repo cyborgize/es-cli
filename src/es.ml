@@ -139,6 +139,44 @@ let alias config =
   | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
+let flush config =
+  let force = ref false in
+  let synced = ref false in
+  let wait = ref false in
+  let args =
+    let open ExtArg in
+    ("-f", Set force, " force flush") ::
+    ("-s", Set synced, " synced flush") ::
+    ("-w", Set wait, " wait if ongoing") ::
+    args
+  in
+  ExtArg.parse ~f:(tuck cmd) args;
+  let usage () = fprintf stderr "flush [options] <host> [index1 [index2 ...]]\n"; exit 1 in
+  match List.rev !cmd with
+  | [] -> usage ()
+  | host :: indices ->
+  let host = Common.get_host config host in
+  let bool' v = function true -> Some v | false -> None in
+  let bool = bool' "true" in
+  let args = [
+    "force", bool !force;
+    "wait_if_ongoing", bool !wait;
+  ] in
+  let path = [
+    Some host;
+    csv indices;
+    Some "_flush";
+    bool' "synced" !synced;
+  ] in
+  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
+  let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
+  let url = String.concat "/" (List.filter_map id path) ^ args in
+  Lwt_main.run @@
+  match%lwt Web.http_request_lwt ~verbose:!verbose `POST url with
+  | exception exn -> log #error ~exn "flush"; Lwt.fail exn
+  | `Error error -> log #error "flush error : %s" error; Lwt.fail_with error
+  | `Ok result -> Lwt_io.printl result
+
 let get config =
   let source_include = ref [] in
   let source_exclude = ref [] in
@@ -523,6 +561,7 @@ let search config =
 let () =
   let tools = [
     "alias", alias;
+    "flush", flush;
     "get", get;
     "health", health;
     "nodes", nodes;
