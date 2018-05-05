@@ -6,7 +6,7 @@ Authors:     Raman Varabets
 License:     GPL-3.0+
 Plugins:     META (0.4), DevFiles (0.4)
 BuildTools:  ocamlbuild
-BuildDepends: threads, lwt.ppx, devkit, re2, atdgen
+BuildDepends: threads, lwt_ppx, devkit, re2, atdgen
 OCamlVersion: >= 4.02.3
 AlphaFeatures: ocamlbuild_more_args
 XOCamlbuildPluginTags: package(mybuild)
