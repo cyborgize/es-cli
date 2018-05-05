@@ -12,11 +12,14 @@ let json_content_type = "application/json"
 
 let cmd = ref []
 
+let http_timeout = ref (Time.seconds 60)
+
 let verbose = ref false
 
 let args =
   ExtArg.[
-    bool "v" verbose " log http requests";
+    "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
+    bool "v" verbose " log HTTP requests";
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
@@ -100,6 +103,12 @@ let compare_fmt = function
   | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
   | `None -> (fun _ -> false)
 
+let http_request_lwt' ?body action url =
+  Web.http_request_lwt' ~verbose:!verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
+
+let http_request_lwt ?body action url =
+  Web.http_request_lwt ~verbose:!verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
+
 let alias config =
   let add_remove action =
     ExtArg.make_arg @@ object
@@ -134,7 +143,7 @@ let alias config =
     `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_j.actions; }))
   in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose ?body action url with
+  match%lwt http_request_lwt ?body action url with
   | exception exn -> log #error ~exn "alias"; Lwt.fail exn
   | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -172,7 +181,7 @@ let flush config =
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (List.filter_map id path) ^ args in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose `POST url with
+  match%lwt http_request_lwt `POST url with
   | exception exn -> log #error ~exn "flush"; Lwt.fail exn
   | `Error error -> log #error "flush error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -219,7 +228,7 @@ let get config =
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt' ~verbose:!verbose `GET url with
+  match%lwt http_request_lwt' `GET url with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
@@ -264,7 +273,7 @@ let health config =
         "active_shards_percent";
       ] in
       let url = sprintf "%s/_cat/health?h=%s" host (String.concat "," columns) in
-      match%lwt Web.http_request_lwt ~verbose:!verbose `GET url with
+      match%lwt http_request_lwt `GET url with
       | exception exn -> log #error ~exn "health"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
       | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s error %s\n" host error)
       | `Ok result -> Lwt.return (i, sprintf "%s %s" host result)
@@ -294,7 +303,7 @@ let nodes config =
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose `GET url with
+  match%lwt http_request_lwt `GET url with
   | exception exn -> log #error ~exn "nodes"; Lwt.fail exn
   | `Error error -> log #error "nodes error : %s" error; Lwt.fail_with error
   | `Ok result ->
@@ -342,7 +351,7 @@ let put config =
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
   let%lwt body = match body with [body] -> Lwt.return body | [] -> Lwt_io.read Lwt_io.stdin | _ -> assert%lwt false in
-  match%lwt Web.http_request_lwt ~verbose:!verbose ~body:(`Raw (json_content_type, body)) `PUT url with
+  match%lwt http_request_lwt ~body:(`Raw (json_content_type, body)) `PUT url with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -384,7 +393,7 @@ let recovery config =
   let host = Common.get_host config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_recovery"; ]) in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose `GET url with
+  match%lwt http_request_lwt `GET url with
   | exception exn -> log #error ~exn "recovery"; Lwt.fail exn
   | `Error error -> log #error "recovery error : %s" error; Lwt.fail_with error
   | `Ok result ->
@@ -422,7 +431,7 @@ let refresh config =
   let host = Common.get_host config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_refresh"; ]) in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose `POST url with
+  match%lwt http_request_lwt `POST url with
   | exception exn -> log #error ~exn "refresh"; Lwt.fail exn
   | `Error error -> log #error "refresh error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -508,7 +517,7 @@ let search config =
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
   Lwt_main.run @@
-  match%lwt Web.http_request_lwt ~verbose:!verbose ?body `POST url with
+  match%lwt http_request_lwt ?body `POST url with
   | exception exn -> log #error ~exn "search"; Lwt.fail exn
   | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
   | `Ok result ->
@@ -520,7 +529,7 @@ let search config =
     | None -> Lwt.return_unit
     | Some scroll_id ->
     let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_j.scroll_id = [ scroll_id; ]; } in
-    match%lwt Web.http_request_lwt ~verbose:!verbose ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
+    match%lwt http_request_lwt ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
     | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
     | `Ok _ok -> Lwt.return_unit
   in
@@ -549,7 +558,7 @@ let search config =
     | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
     | _, Some scroll, Some scroll_id ->
     let scroll = Elastic_j.string_of_scroll { Elastic_j.scroll; scroll_id; } in
-    match%lwt Web.http_request_lwt ~verbose:!verbose ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
+    match%lwt http_request_lwt ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
     | `Error error ->
       log #error "scroll error : %s" error;
       let%lwt () = clear_scroll (Some scroll_id) in
