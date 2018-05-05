@@ -1,5 +1,10 @@
 # Change Log
 
+## 0.4
+- use `-t` to set search timeout
+- use `-T` to set HTTP request timeout
+- fix dependency on lwt ppx
+
 ## 0.3
 - `flush` tool
 - sliced scroll (`-N` and `-I`)
