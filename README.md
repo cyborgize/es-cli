@@ -35,8 +35,8 @@ An example configuration file:
 With the above configuration file, it is possible to use alias names instead of full host names, for example:
 
 ```
-es health cluster1 # will show health for cluster1.mydomain.com:9200
-es health # will show health for all configured clusters
+es health cluster1 # show health for cluster1.mydomain.com:9200
+es health # show health for all configured clusters
 ```
 
 ```
@@ -47,12 +47,21 @@ es search cluster2/myindex
 
 ### Add or remove index alias
 
+Add alias `alias1` to `myindex1` and alias `alias2` to `myindex2`:
+
 ```
 es alias cluster1.mydomain.com:9200 -a myindex1 alias1 -a myindex2 alias2
 ```
 
+Remove alias `alias1` to `myindex1` and alias `alias2` to `myindex2`:
+
 ```
 es alias cluster1.mydomain.com:9200 -r myindex1 alias1 -r myindex2 alias2
+```
+
+Move index alias `current` from `index-3` to `index-4`
+```
+es alias cluster1.mydomain.com:9200 -r index-3 current -a index-4 current
 ```
 
 ### Get document by id
@@ -75,6 +84,12 @@ Expect data0...data9, client0...client4 and master nodes to be present):
 es nodes cluster1.mydomain.com:9200 -h data{0..9} master client{0..4}
 ```
 
+Expect all nodes listed for cluster `mycluster` in the `elasticsearch-cli` configuration to be present:
+
+```
+es nodes mycluster
+```
+
 ### Put document with or without id
 
 ```
@@ -92,6 +107,7 @@ echo '{ "first_name": "Johnny", "last_name": "Doe" }' | es put cluster1.mydomain
 ### Check shard recovery status
 
 Display shards which are not in `DONE` stage:
+
 ```
 es recovery cluster1.mydomain.com:9200 -e stage done
 ```
@@ -104,6 +120,22 @@ es refresh cluster1.mydomain.com:9200 myindex1 myindex2
 
 ### Query/search documents in an index
 
+Search the index `myindex` for documents containing `"Hello world!"` in the `title` field. Return fields
+`field1` and `field2` of the document with the most recent value of the `updated_at` field:
+
 ```
 es search cluster1.mydomain.com:9200 myindex -i field1,field2 -s updated_at:desc -n 1 -q 'title:"Hello world!"'
+```
+
+Search the index `myindex` for documents containing `12345` in the `field1` field. Return 10 documents' sources,
+omitting the `boringfield` field.
+
+```
+es search cluster1.mydomain.com:9200 myindex -e boringfield -n 10 -f source '{"query":{"term":{"field1":12345}}}'
+```
+
+Show the number of documents in the index `myindex` with field `field1` value greater or equal to 10:
+
+```
+es search cluster1.mydomain.com:9200 myindex -n 0 -c -q 'field1:>=10'
 ```
