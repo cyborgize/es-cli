@@ -4,6 +4,3 @@ setup.data
 *.native
 *.byte
 /version.ml
-
-*.sw[a-z]
-.sw[a-z]
