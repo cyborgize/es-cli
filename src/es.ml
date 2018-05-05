@@ -437,6 +437,7 @@ let refresh config =
   | `Ok result -> Lwt_io.printl result
 
 let search config =
+  let timeout = ref None in
   let size = ref None in
   let from = ref None in
   let sort = ref [] in
@@ -452,6 +453,7 @@ let search config =
   let format = ref [] in
   let args =
     let open ExtArg in
+    may_str "t" timeout "<duration> set operation timeout (format: 10s, 20000ms, 2m)" ::
     may_int "n" size "<n> #set search limit" ::
     may_int "o" from "<n> #set search offset" ::
     str_list "s" sort "<field[:dir]> #set sort order" ::
@@ -486,6 +488,7 @@ let search config =
   in
   let host = Common.get_host config host in
   let args = [
+    "timeout", !timeout;
     "size", int !size;
     "from", int !from;
     "sort", csv !sort;
