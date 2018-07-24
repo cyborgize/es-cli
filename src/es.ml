@@ -451,6 +451,7 @@ let search config =
   let slice_max = ref None in
   let query = ref None in
   let show_count = ref false in
+  let retry = ref false in
   let format = ref [] in
   let args =
     let open ExtArg in
@@ -468,6 +469,7 @@ let search config =
     may_int "I" slice_id "<id> #specify slice id for sliced scroll" ::
     may_str "q" query "<query> #query using query_string" ::
     bool "c" show_count " output number of hits" ::
+    bool "R" retry " retry if there are any failed shards" ::
     str_list "f" format "<hit|id|source> #map hits according to specified format" ::
     args
   in
@@ -522,56 +524,80 @@ let search config =
   in
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
-  Lwt_main.run @@
-  match%lwt http_request_lwt ?body `POST url with
-  | exception exn -> log #error ~exn "search"; Lwt.fail exn
-  | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
-  | `Ok result ->
-  match !show_count, format, !scroll with
-  | false, [], None -> Lwt_io.printl result
-  | show_count, format, scroll ->
-  let scroll_url = host ^ "/_search/scroll" in
-  let clear_scroll = function
-    | None -> Lwt.return_unit
-    | Some scroll_id ->
-    let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_j.scroll_id = [ scroll_id; ]; } in
-    match%lwt http_request_lwt ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
-    | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
-    | `Ok _ok -> Lwt.return_unit
-  in
-  let rec loop result =
-    let { Elastic_j.hits; scroll_id; _ } = Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) result in
-    match hits with
-    | None -> log #error "no hits"; clear_scroll scroll_id
-    | Some { Elastic_j.total; hits; _ } ->
-    let%lwt () =
-      match show_count with
-      | false -> Lwt.return_unit
-      | true -> Lwt_io.printlf "%d" total
+  let htbl = Hashtbl.create (if !retry then Option.default 10 !size else 0) in
+  let rec search () =
+    match%lwt http_request_lwt ?body `POST url with
+    | exception exn -> log #error ~exn "search"; Lwt.fail exn
+    | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
+    | `Ok result ->
+    match !show_count, format, !scroll, !retry with
+    | false, [], None, false -> Lwt_io.printl result
+    | show_count, format, scroll, retry ->
+    let scroll_url = host ^ "/_search/scroll" in
+    let clear_scroll' scroll_id =
+      let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; } in
+      match%lwt http_request_lwt ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
+      | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
+      | `Ok _ok -> Lwt.return_unit
     in
-    let%lwt () =
-      match format, show_count with
-      | [], true -> Lwt.return_unit
-      | [], false -> Lwt_io.printl result
-      | _ ->
-      Lwt_list.iter_s begin fun hit ->
-        List.map (fun f -> f hit) format |>
-        String.join " " |>
-        Lwt_io.printl
-      end hits
+    let clear_scroll scroll_id = Option.map_default clear_scroll' Lwt.return_unit scroll_id in
+    let rec loop result =
+      let { Elastic_t.hits = response_hits; scroll_id; shards = { Elastic_t.failed; _ }; _ } as response =
+        Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) result
+      in
+      match response_hits with
+      | None -> log #error "no hits"; clear_scroll scroll_id
+      | Some ({ Elastic_t.total; hits; _ } as response_hits) ->
+      let hits =
+        match retry with
+        | false -> hits
+        | true ->
+        List.filter begin fun ({ Elastic_t.index; doc_type; id; _ } : 'a Elastic_t.option_hit) ->
+          let key = index, doc_type, id in
+          match Hashtbl.mem htbl key with
+          | false -> Hashtbl.add htbl key (); true
+          | true -> false
+        end hits
+      in
+      let%lwt () =
+        match show_count with
+        | false -> Lwt.return_unit
+        | true -> Lwt_io.printlf "%d" total
+      in
+      let%lwt () =
+        match format, show_count, retry with
+        | [], true, _ -> Lwt.return_unit
+        | [], false, false -> Lwt_io.printl result
+        | [], false, true ->
+          { response with Elastic_t.hits = Some { response_hits with Elastic_t.hits; }; } |>
+          Elastic_j.string_of_response' (Elastic_j.write_option_hit J.write_json) |>
+          Lwt_io.printl
+        | _ ->
+        Lwt_list.iter_s begin fun hit ->
+          List.map (fun f -> f hit) format |>
+          String.join " " |>
+          Lwt_io.printl
+        end hits
+      in
+      match failed > 0 && retry with
+      | true ->
+        let%lwt () = clear_scroll scroll_id in
+        search ()
+      | false ->
+      match hits, scroll, scroll_id with
+      | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
+      | _, Some scroll, Some scroll_id ->
+      let scroll = Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; } in
+      match%lwt http_request_lwt ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
+      | `Error error ->
+        log #error "scroll error : %s" error;
+        let%lwt () = clear_scroll' scroll_id in
+        Lwt.fail_with error
+      | `Ok result -> loop result
     in
-    match hits, scroll, scroll_id with
-    | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
-    | _, Some scroll, Some scroll_id ->
-    let scroll = Elastic_j.string_of_scroll { Elastic_j.scroll; scroll_id; } in
-    match%lwt http_request_lwt ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
-    | `Error error ->
-      log #error "scroll error : %s" error;
-      let%lwt () = clear_scroll (Some scroll_id) in
-      Lwt.fail_with error
-    | `Ok result -> loop result
+    loop result
   in
-  loop result
+  Lwt_main.run @@ search ()
 
 let () =
   let tools = [
