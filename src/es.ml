@@ -43,18 +43,18 @@ let int = Option.map string_of_int
 let one = function [] -> None | [x] -> Some x | _ -> assert false
 
 let map_of_hit_format =
-  let open Elastic_j in function
+  let open Elastic_t in function
   | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
   | "id" -> (fun hit -> hit.id)
   | "type" -> (fun hit -> hit.doc_type)
   | "index" -> (fun hit -> hit.index)
   | "routing" -> (fun hit -> Option.default "" hit.routing)
-  | "hit" -> (fun hit -> string_of_option_hit J.write_json hit)
+  | "hit" -> (fun hit -> Elastic_j.string_of_option_hit J.write_json hit)
   | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
   | s -> Exn.fail "unknown hit field \"%s\"" s
 
 let map_of_index_shard_format =
-  let open Elastic_j in function
+  let open Elastic_t in function
   | "index" -> (fun index (shard : index_shard) -> `String index)
   | "shard" -> (fun _index shard -> `Int shard.id)
   | "time" -> (fun _index shard -> `Duration (Time.msec shard.index.total_time_in_millis))
@@ -139,8 +139,8 @@ let alias config =
     match !actions with
     | [] -> `GET, None
     | actions ->
-    let actions = List.map (fun (action, (index, alias)) -> [ action, { Elastic_j.index; alias; }; ]) actions in
-    `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_j.actions; }))
+    let actions = List.map (fun (action, (index, alias)) -> [ action, { Elastic_t.index; alias; }; ]) actions in
+    `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_t.actions; }))
   in
   Lwt_main.run @@
   match%lwt http_request_lwt ?body action url with
@@ -243,7 +243,7 @@ let get config =
   | _ ->
   match Elastic_j.option_hit_of_string J.read_json result with
   | exception exn -> log #error ~exn "get %s" result; Lwt.fail exn
-  | { Elastic_j.found = false; _ } -> Lwt.return_unit
+  | { Elastic_t.found = false; _ } -> Lwt.return_unit
   | hit ->
   List.map (fun f -> f hit) format |>
   String.join " " |>
@@ -251,7 +251,7 @@ let get config =
 
 let health config =
   ExtArg.parse ~f:(tuck cmd) args;
-  let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_j.clusters) in
+  let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_t.clusters) in
   let hosts =
     match List.rev !cmd with
     | [] -> !!all_hosts
@@ -297,7 +297,7 @@ let nodes config =
   let (host, cluster) = Common.get_cluster config host in
   let check_nodes =
     match !check_nodes, cluster with
-    | [], Some { Config_j.nodes = Some nodes; _ } -> nodes
+    | [], Some { Config_t.nodes = Some nodes; _ } -> nodes
     | nodes, _ -> nodes
   in
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
@@ -404,17 +404,17 @@ let recovery config =
     match filter_include, filter_exclude with
     | [], [] -> indices
     | _ ->
-    List.map begin fun (index, { Elastic_j.shards; }) ->
+    List.map begin fun (index, { Elastic_t.shards; }) ->
       let shards =
         List.filter begin fun shard ->
           List.for_all (fun (f, v) -> compare_fmt (f index shard) v) filter_include &&
           not (List.exists (fun (f, v) -> compare_fmt (f index shard) v) filter_exclude)
         end shards
       in
-      index, { Elastic_j.shards; }
+      index, { Elastic_t.shards; }
     end indices
   in
-  Lwt_list.iter_s begin fun (index, { Elastic_j.shards; }) ->
+  Lwt_list.iter_s begin fun (index, { Elastic_t.shards; }) ->
     Lwt_list.iter_s begin fun shard ->
       List.map (fun f -> map_show (f index shard)) format |>
       String.concat " " |>
