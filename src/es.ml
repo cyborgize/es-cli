@@ -443,6 +443,7 @@ let search config =
   let sort = ref [] in
   let source_include = ref [] in
   let source_exclude = ref [] in
+  let fields = ref [] in
   let routing = ref [] in
   let preference = ref [] in
   let scroll = ref None in
@@ -459,6 +460,7 @@ let search config =
     str_list "s" sort "<field[:dir]> #set sort order" ::
     str_list "i" source_include "<field> #include source field" ::
     str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "F" fields "<field> #include store field" ::
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
     may_str "S" scroll "<interval> #scroll search" ::
@@ -494,6 +496,7 @@ let search config =
     "sort", csv !sort;
     (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
     "_source_exclude", csv !source_exclude;
+    "stored_fields", csv !fields;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !preference;
     "scroll", !scroll;
