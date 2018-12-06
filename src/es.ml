@@ -452,6 +452,7 @@ let search config =
   let slice_max = ref None in
   let query = ref None in
   let analyzer = ref None in
+  let analyze_wildcard = ref false in
   let default_field = ref None in
   let default_operator = ref None in
   let explain = ref false in
@@ -474,6 +475,7 @@ let search config =
     may_int "I" slice_id "<id> #specify slice id for sliced scroll" ::
     may_str "q" query "<query> #query using query_string" ::
     may_str "a" analyzer "<analyzer> #analyzer to be used for query_string" ::
+    bool "w" analyze_wildcard " analyze wildcard and prefix queries" ::
     may_str "d" default_field "<field> #default field to be used for query_string" ::
     may_str "O" default_operator "<OR|AND> #default field to be used for query_string" ::
     bool "E" explain " explain hits" ::
@@ -513,6 +515,7 @@ let search config =
     "explain", flag !explain;
     "scroll", !scroll;
     "analyzer", !analyzer;
+    "analyze_wildcard", flag !analyze_wildcard;
     "df", !default_field;
     "default_operator", !default_operator;
     "q", !query;
