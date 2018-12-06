@@ -3,7 +3,6 @@ open ExtLib
 open Printf
 
 module J = Yojson.Safe
-module Re2 = Re2.Regex
 module SS = Set.Make(String)
 
 let log = Log.from "es"
