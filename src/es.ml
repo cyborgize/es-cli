@@ -451,6 +451,9 @@ let search config =
   let slice_id = ref None in
   let slice_max = ref None in
   let query = ref None in
+  let analyzer = ref None in
+  let default_field = ref None in
+  let default_operator = ref None in
   let explain = ref false in
   let show_count = ref false in
   let retry = ref false in
@@ -470,6 +473,9 @@ let search config =
     may_int "N" slice_max "<n> #specify number of slices for sliced scroll" ::
     may_int "I" slice_id "<id> #specify slice id for sliced scroll" ::
     may_str "q" query "<query> #query using query_string" ::
+    may_str "a" analyzer "<analyzer> #analyzer to be used for query_string" ::
+    may_str "d" default_field "<field> #default field to be used for query_string" ::
+    may_str "O" default_operator "<OR|AND> #default field to be used for query_string" ::
     bool "E" explain " explain hits" ::
     bool "c" show_count " output number of hits" ::
     bool "R" retry " retry if there are any failed shards" ::
@@ -506,6 +512,9 @@ let search config =
     "preference", csv ~sep:"|" !preference;
     "explain", flag !explain;
     "scroll", !scroll;
+    "analyzer", !analyzer;
+    "df", !default_field;
+    "default_operator", !default_operator;
     "q", !query;
   ] in
   let format =
