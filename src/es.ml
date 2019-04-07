@@ -464,7 +464,7 @@ let search config =
     str_list "s" sort "<field[:dir]> #set sort order" ::
     str_list "i" source_include "<field> #include source field" ::
     str_list "e" source_exclude "<field> #exclude source field" ::
-    str_list "F" fields "<field> #include store field" ::
+    str_list "F" fields "<field> #include stored field" ::
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
     may_str "S" scroll "<interval> #scroll search" ::
