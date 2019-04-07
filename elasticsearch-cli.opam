@@ -1,4 +1,4 @@
-opam-version: "1.2"
+opam-version: "2.0"
 version: "0.4"
 maintainer: "Raman Varabets <roman.vorobets@gmail.com>"
 authors: ["Raman Varabets <roman.vorobets@gmail.com>"]
@@ -6,21 +6,13 @@ homepage: "https://github.com/cyborgize/es-cli"
 dev-repo: "git+https://github.com/cyborgize/es-cli.git"
 bug-reports: "https://github.com/cyborgize/es-cli/issues"
 build: [
-  ["./configure" "--prefix" "%{prefix}%"]
-  [make]
-]
-install: [
-  [make "install"]
-]
-remove: [
-  [make "uninstall"]
+  ["dune" "subst"] {pinned}
+  ["dune" "build" "-p" name "-j" jobs]
 ]
 depends: [
   "ocaml" {>= "4.01.0"}
-  "ocamlfind" {build}
-  "oasis" {build}
-  "ocamlbuild" {build}
   "mybuild" {build}
+  "dune" {build & >= "1.5"}
   "devkit" {> "0.7"}
   "extlib" {>= "1.7.1"}
   "lwt" {>= "3.2.0"}

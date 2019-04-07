@@ -1,0 +1,46 @@
+(executable
+  (name es)
+  (public_name es)
+  (libraries atdgen devkit extlib re2)
+  (modules :standard \ gen_version)
+  (preprocess (pps lwt_ppx)))
+
+(executable
+  (name gen_version)
+  (libraries mybuild)
+  (modules gen_version))
+
+(rule
+  (targets version.ml)
+  (deps gen_version.exe)
+  (action (run ./gen_version.exe version.ml)))
+
+(rule
+  (targets config_t.ml config_t.mli)
+  (deps config.atd)
+  (action (run atdgen -t %{deps})))
+
+(rule
+  (targets config_j.ml config_j.mli)
+  (deps config.atd)
+  (action (run atdgen -j -j-std %{deps})))
+
+(rule
+  (targets elastic_t.ml elastic_t.mli)
+  (deps elastic.atd)
+  (action (run atdgen -t %{deps})))
+
+(rule
+  (targets elastic_j.ml elastic_j.mli)
+  (deps elastic.atd)
+  (action (run atdgen -j -j-std %{deps})))
+
+(rule
+  (targets util_t.ml util_t.mli)
+  (deps util.atd)
+  (action (run atdgen -t %{deps})))
+
+(rule
+  (targets util_j.ml util_j.mli)
+  (deps util.atd)
+  (action (run atdgen -j -j-std %{deps})))
