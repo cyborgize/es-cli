@@ -45,7 +45,7 @@ let flag ?(default=false) = function x when x = default -> None | true -> Some "
 
 let map_of_hit_format =
   let open Elastic_t in function
-  | "full_id" -> (fun { index; doc_type; id; source; } -> sprintf "/%s/%s/%s" index doc_type id)
+  | "full_id" -> (fun ({ index; doc_type; id; _ } : 'a Elastic_t.option_hit) -> sprintf "/%s/%s/%s" index doc_type id)
   | "id" -> (fun hit -> hit.id)
   | "type" -> (fun hit -> hit.doc_type)
   | "index" -> (fun hit -> hit.index)
@@ -56,7 +56,7 @@ let map_of_hit_format =
 
 let map_of_index_shard_format =
   let open Elastic_t in function
-  | "index" -> (fun index (shard : index_shard) -> `String index)
+  | "index" -> (fun index (_shard : index_shard) -> `String index)
   | "shard" -> (fun _index shard -> `Int shard.id)
   | "time" -> (fun _index shard -> `Duration (Time.msec shard.index.total_time_in_millis))
   | "type" -> (fun _index shard -> `Symbol shard.kind)
@@ -124,7 +124,6 @@ let alias config =
   in
   let actions = ref [] in
   let args =
-    let open ExtArg in
     add_remove "add" "a" actions " add alias" ::
     add_remove "remove" "r" actions " remove alias" ::
     args
@@ -194,7 +193,6 @@ let get config =
   let preference = ref [] in
   let format = ref [] in
   let args =
-    let open ExtArg in
     str_list "i" source_include "<field> #include source field" ::
     str_list "e" source_exclude "<field> #exclude source field" ::
     str_list "r" routing "<routing> #set routing" ::
@@ -373,7 +371,6 @@ let recovery config =
   let filter_include = ref [] in
   let filter_exclude = ref [] in
   let args =
-    let open ExtArg in
     str_list "f" format "<index|shard|type|stage|...> #map hit according to specified format" ::
     two_str_list "i" filter_include "<column> <value> #include only shards matching the filter" ::
     two_str_list "e" filter_exclude "<column> <value> #exclude shards matching the filter" ::

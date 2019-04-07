@@ -2,7 +2,6 @@ open Devkit
 open ExtLib
 open Printf
 
-module Re2 = Re2.Regex
 module J = Yojson.Safe
 
 let log = Log.from "common"
