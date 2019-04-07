@@ -1,5 +1,5 @@
 
-type json <ocaml module="Yojson.Safe" t="json"> = abstract
+type json <ocaml module="Yojson.Safe" t="t"> = abstract
 
 type id_hit = {
   index <json name="_index"> : string;
