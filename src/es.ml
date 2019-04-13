@@ -26,6 +26,10 @@ let args =
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
+let source_excludes_arg () = match !es_version with None | Some `ES6 -> "_source_exclude" | Some `ES7 -> "_source_excludes"
+
+let source_includes_arg () = match !es_version with None | Some `ES6 -> "_source_include" | Some `ES7 -> "_source_includes"
+
 let usage tools =
   fprintf stderr "Usage: %s {<tool>|-help|version}\n" Sys.executable_name;
   fprintf stderr "where <tool> is one of:\n";
@@ -191,14 +195,14 @@ let flush config =
   | `Ok result -> Lwt_io.printl result
 
 let get config =
-  let source_include = ref [] in
-  let source_exclude = ref [] in
+  let source_includes = ref [] in
+  let source_excludes = ref [] in
   let routing = ref [] in
   let preference = ref [] in
   let format = ref [] in
   let args =
-    str_list "i" source_include "<field> #include source field" ::
-    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "i" source_includes "<field> #include source field" ::
+    str_list "e" source_excludes "<field> #exclude source field" ::
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
     str_list "f" format "<hit|id|source> #map hit according to specified format" ::
@@ -215,8 +219,8 @@ let get config =
   | host :: index :: doc ->
   let host = Common.get_host config host in
   let args = [
-    (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
-    "_source_exclude", csv !source_exclude;
+    (if !source_excludes = [] then "_source" else source_includes_arg ()), csv !source_includes;
+    source_excludes_arg (), csv !source_excludes;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !preference;
   ] in
@@ -443,8 +447,8 @@ let search config =
   let size = ref None in
   let from = ref None in
   let sort = ref [] in
-  let source_include = ref [] in
-  let source_exclude = ref [] in
+  let source_includes = ref [] in
+  let source_excludes = ref [] in
   let fields = ref [] in
   let routing = ref [] in
   let preference = ref [] in
@@ -466,8 +470,8 @@ let search config =
     may_int "n" size "<n> #set search limit" ::
     may_int "o" from "<n> #set search offset" ::
     str_list "s" sort "<field[:dir]> #set sort order" ::
-    str_list "i" source_include "<field> #include source field" ::
-    str_list "e" source_exclude "<field> #exclude source field" ::
+    str_list "i" source_includes "<field> #include source field" ::
+    str_list "e" source_excludes "<field> #exclude source field" ::
     str_list "F" fields "<field> #include stored field" ::
     str_list "r" routing "<routing> #set routing" ::
     str_list "p" preference "<preference> #set preference" ::
@@ -508,8 +512,8 @@ let search config =
     "size", int !size;
     "from", int !from;
     "sort", csv !sort;
-    (if !source_exclude = [] then "_source" else "_source_include"), csv !source_include;
-    "_source_exclude", csv !source_exclude;
+    (if !source_excludes = [] then "_source" else source_includes_arg ()), csv !source_includes;
+    source_excludes_arg (), csv !source_excludes;
     "stored_fields", csv !fields;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !preference;
