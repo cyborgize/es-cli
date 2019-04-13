@@ -8,6 +8,12 @@ let log = Log.from "common"
 
 let version = sprintf "%s [%s@%s]" Version.id Version.user Version.host
 
+type config = {
+  host : string;
+  nodes : string list option;
+  version : Config_t.version option;
+}
+
 let expand_node =
   let re = Re2.create_exn "\\{(\\d+)\\.\\.(\\d+)\\}" in
   let rec expand name =
@@ -39,12 +45,7 @@ let load_config () =
   let config = Control.with_input_txt config_file IO.read_all in
   Config_j.config_of_string config
 
-let get_host config name =
-  match List.assoc name config.Config_j.clusters with
-  | exception Not_found -> name
-  | { Config_j.host; _ } -> Option.default name host
-
 let get_cluster config name =
-  match List.assoc name config.Config_j.clusters with
-  | exception Not_found -> name, None
-  | { Config_j.host; _ } as cluster_config -> Option.default name host, Some cluster_config
+  match List.assoc name config.Config_t.clusters with
+  | { Config_t.host; nodes; version; } -> { host = Option.default name host; nodes; version; }
+  | exception Not_found -> { host = name; nodes = None; version = None; }

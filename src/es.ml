@@ -19,6 +19,7 @@ let es_version = ref None
 
 let args =
   ExtArg.[
+    "-5", Unit (fun () -> es_version := Some `ES5), " force ES version 5.x";
     "-6", Unit (fun () -> es_version := Some `ES6), " force ES version 6.x";
     "-7", Unit (fun () -> es_version := Some `ES7), " force ES version 7.x";
     "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
@@ -26,9 +27,21 @@ let args =
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
-let source_excludes_arg () = match !es_version with None | Some `ES6 -> "_source_exclude" | Some `ES7 -> "_source_excludes"
+type es_version_config = {
+  source_includes_arg : string;
+  source_excludes_arg : string;
+}
 
-let source_includes_arg () = match !es_version with None | Some `ES6 -> "_source_include" | Some `ES7 -> "_source_includes"
+let es6_config = { source_includes_arg = "_source_include"; source_excludes_arg = "_source_exclude"; }
+
+let es7_config = { source_includes_arg = "_source_includes"; source_excludes_arg = "_source_excludes"; }
+
+let get_es_version_config' = function
+  | None | Some (`ES5 | `ES6) -> es6_config
+  | Some `ES7 -> es7_config
+
+let get_es_version_config version =
+  get_es_version_config' (match !es_version with Some _ as version -> version | None -> version)
 
 let usage tools =
   fprintf stderr "Usage: %s {<tool>|-help|version}\n" Sys.executable_name;
@@ -141,7 +154,7 @@ let alias config =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
-  let host = Common.get_host config host in
+  let { Common.host; _ } = Common.get_cluster config host in
   let url = sprintf "%s/_aliases" host in
   let (action, body) =
     match !actions with
@@ -172,7 +185,7 @@ let flush config =
   match List.rev !cmd with
   | [] -> usage ()
   | host :: indices ->
-  let host = Common.get_host config host in
+  let { Common.host; _ } = Common.get_cluster config host in
   let bool' v = function true -> Some v | false -> None in
   let bool = bool' "true" in
   let args = [
@@ -217,10 +230,11 @@ let get config =
   | [] -> assert false
   | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
-  let host = Common.get_host config host in
+  let { Common.host; version; _ } = Common.get_cluster config host in
+  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config version in
   let args = [
-    (if !source_excludes = [] then "_source" else source_includes_arg ()), csv !source_includes;
-    source_excludes_arg (), csv !source_excludes;
+    (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
+    source_excludes_arg, csv !source_excludes;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !preference;
   ] in
@@ -258,20 +272,20 @@ let get config =
 
 let health config =
   ExtArg.parse ~f:(tuck cmd) args;
-  let all_hosts = lazy (List.map (fun (name, _) -> Common.get_host config name) config.Config_t.clusters) in
+  let all_hosts = lazy (List.map (fun (name, _) -> Common.get_cluster config name) config.Config_t.clusters) in
   let hosts =
     match List.rev !cmd with
     | [] -> !!all_hosts
     | hosts ->
     List.map begin function
       | "_all" -> !!all_hosts
-      | name -> [ Common.get_host config name; ]
+      | name -> [ Common.get_cluster config name; ]
     end hosts |>
     List.concat
   in
   Lwt_main.run @@
   let%lwt results =
-    Lwt_list.mapi_p begin fun i host ->
+    Lwt_list.mapi_p begin fun i { Common.host; _ } ->
       let columns = [
         "cluster"; "status";
         "node.total"; "node.data";
@@ -301,12 +315,8 @@ let nodes config =
   match List.rev !cmd with
   | [] | _::_::_ -> usage ()
   | [host] ->
-  let (host, cluster) = Common.get_cluster config host in
-  let check_nodes =
-    match !check_nodes, cluster with
-    | [], Some { Config_t.nodes = Some nodes; _ } -> nodes
-    | nodes, _ -> nodes
-  in
+  let { Common.host; nodes; _ } = Common.get_cluster config host in
+  let check_nodes = match !check_nodes with [] -> Option.default [] nodes | nodes -> nodes in
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
@@ -351,7 +361,7 @@ let put config =
   | [] -> assert false
   | _host :: ([] | [_] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
-  let host = Common.get_host config host in
+  let { Common.host; _ } = Common.get_cluster config host in
   let args = [ "routing", !routing; ] in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
@@ -396,7 +406,7 @@ let recovery config =
   in
   let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_include in
   let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_exclude in
-  let host = Common.get_host config host in
+  let { Common.host; _ } = Common.get_cluster config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_recovery"; ]) in
   Lwt_main.run @@
   match%lwt http_request_lwt `GET url with
@@ -434,7 +444,7 @@ let refresh config =
   match List.rev !cmd with
   | [] -> usage ()
   | host :: indices ->
-  let host = Common.get_host config host in
+  let { Common.host; _ } = Common.get_cluster config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_refresh"; ]) in
   Lwt_main.run @@
   match%lwt http_request_lwt `POST url with
@@ -506,14 +516,15 @@ let search config =
     | _::_::_::_ -> usage ()
     | index :: doc_type -> host, index, one doc_type, one body_query
   in
-  let host = Common.get_host config host in
+  let { Common.host; version; _ } = Common.get_cluster config host in
+  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config version in
   let args = [
     "timeout", !timeout;
     "size", int !size;
     "from", int !from;
     "sort", csv !sort;
-    (if !source_excludes = [] then "_source" else source_includes_arg ()), csv !source_includes;
-    source_excludes_arg (), csv !source_excludes;
+    (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
+    source_excludes_arg, csv !source_excludes;
     "stored_fields", csv !fields;
     "routing", csv !routing;
     "preference", csv ~sep:"|" !preference;
