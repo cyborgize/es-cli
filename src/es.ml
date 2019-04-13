@@ -43,6 +43,11 @@ let get_es_version_config' = function
 let get_es_version_config version =
   get_es_version_config' (match !es_version with Some _ as version -> version | None -> version)
 
+let get_body_query_file body_query =
+  match body_query <> "" && body_query.[0] = '@' with
+  | true -> Control.with_input_txt (String.slice ~first:1 body_query) IO.read_all
+  | false -> body_query
+
 let usage tools =
   fprintf stderr "Usage: %s {<tool>|-help|version}\n" Sys.executable_name;
   fprintf stderr "where <tool> is one of:\n";
@@ -518,6 +523,7 @@ let search config =
   in
   let { Common.host; version; _ } = Common.get_cluster config host in
   let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config version in
+  let body_query = Option.map get_body_query_file body_query in
   let args = [
     "timeout", !timeout;
     "size", int !size;
