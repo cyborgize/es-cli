@@ -15,8 +15,12 @@ let http_timeout = ref (Time.seconds 60)
 
 let verbose = ref false
 
+let es_version = ref None
+
 let args =
   ExtArg.[
+    "-6", Unit (fun () -> es_version := Some `ES6), " force ES version 6.x";
+    "-7", Unit (fun () -> es_version := Some `ES7), " force ES version 7.x";
     "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
     bool "v" verbose " log HTTP requests";
     "--", Rest (tuck cmd), " signal end of options";
