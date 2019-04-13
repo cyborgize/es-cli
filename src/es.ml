@@ -30,11 +30,23 @@ let args =
 type es_version_config = {
   source_includes_arg : string;
   source_excludes_arg : string;
+  read_total : J.lexer_state -> Lexing.lexbuf -> Elastic_t.total;
+  write_total : Bi_outbuf.t -> Elastic_t.total -> unit;
 }
 
-let es6_config = { source_includes_arg = "_source_include"; source_excludes_arg = "_source_exclude"; }
+let es6_config = {
+  source_includes_arg = "_source_include";
+  source_excludes_arg = "_source_exclude";
+  read_total = Elastic_j.read_es6_total;
+  write_total = Elastic_j.write_es6_total;
+}
 
-let es7_config = { source_includes_arg = "_source_includes"; source_excludes_arg = "_source_excludes"; }
+let es7_config = {
+  source_includes_arg = "_source_includes";
+  source_excludes_arg = "_source_excludes";
+  read_total = Elastic_j.read_total;
+  write_total = Elastic_j.write_total;
+}
 
 let get_es_version_config' = function
   | None | Some (`ES5 | `ES6) -> es6_config
@@ -522,7 +534,7 @@ let search config =
     | index :: doc_type -> host, index, one doc_type, one body_query
   in
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config version in
+  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config version in
   let body_query = Option.map get_body_query_file body_query in
   let args = [
     "timeout", !timeout;
@@ -581,11 +593,11 @@ let search config =
     let clear_scroll scroll_id = Option.map_default clear_scroll' Lwt.return_unit scroll_id in
     let rec loop result =
       let { Elastic_t.hits = response_hits; scroll_id; shards = { Elastic_t.failed; _ }; _ } as response =
-        Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) result
+        Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) read_total result
       in
       match response_hits with
       | None -> log #error "no hits"; clear_scroll scroll_id
-      | Some ({ Elastic_t.total; hits; _ } as response_hits) ->
+      | Some ({ Elastic_t.total = { value; relation = _; }; hits; _ } as response_hits) ->
       let hits =
         match retry with
         | false -> hits
@@ -600,7 +612,7 @@ let search config =
       let%lwt () =
         match show_count with
         | false -> Lwt.return_unit
-        | true -> Lwt_io.printlf "%d" total
+        | true -> Lwt_io.printlf "%d" value
       in
       let%lwt () =
         match format, show_count, retry with
@@ -608,7 +620,7 @@ let search config =
         | [], false, false -> Lwt_io.printl result
         | [], false, true ->
           { response with Elastic_t.hits = Some { response_hits with Elastic_t.hits; }; } |>
-          Elastic_j.string_of_response' (Elastic_j.write_option_hit J.write_json) |>
+          Elastic_j.string_of_response' (Elastic_j.write_option_hit J.write_json) write_total |>
           Lwt_io.printl
         | _ ->
         Lwt_list.iter_s begin fun hit ->

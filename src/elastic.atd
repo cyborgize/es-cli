@@ -19,40 +19,51 @@ type unit_hit = {
   ~sort : json list;
 }
 
-type 'a option_hit = {
+type 'source option_hit = {
   inherit unit_hit;
-  ?source <json name="_source"> : 'a option;
+  ?source <json name="_source"> : 'source option;
 }
 
-type 'a hit = {
+type 'source hit = {
   inherit unit_hit;
-  source <json name="_source"> : 'a;
+  source <json name="_source"> : 'source;
 }
 
-type 'a hits' = {
-  total : int;
+type ('hits, 'total) hits' = {
+  total : 'total;
   ~max_score : float;
-  hits : 'a;
+  hits : 'hits;
 }
 
-type 'a hits = 'a list hits'
+type ('hit, 'total) hits = ('hit list, 'total) hits'
+
+type total = {
+  value : int;
+  relation : string;
+}
+
+type es6_total = int wrap <ocaml
+  t="total"
+  wrap="fun value -> { value; relation = \"eq\"; }"
+  unwrap="fun { value; _ } -> value"
+>
 
 type response'' = {
   ?error : error option;
 }
 
-type 'a response' = {
+type ('hit, 'total) response' = {
   inherit response'';
   took: int;
   timed_out: bool;
   shards <json name="_shards"> : shards;
   ?scroll_id <json name="_scroll_id"> : string option;
-  ?hits: 'a hits option;
+  ?hits: ('hit, 'total) hits option;
 }
 
-type 'a opt_response = 'a option_hit response'
+type ('hit, 'total) opt_response = ('hit option_hit, 'total) response'
 
-type 'a response = 'a hit response'
+type ('hit, 'total) response = ('hit hit, 'total) response'
 
 type shards = {
   total : int;
