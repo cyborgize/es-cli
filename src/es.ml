@@ -618,7 +618,7 @@ let search config =
         match format, show_count, retry with
         | [], true, _ -> Lwt.return_unit
         | [], false, false -> Lwt_io.printl result
-        | [], false, true ->
+        | [], false, true when hits <> [] || Hashtbl.length htbl = 0 ->
           { response with Elastic_t.hits = Some { response_hits with Elastic_t.hits; }; } |>
           Elastic_j.string_of_response' (Elastic_j.write_option_hit J.write_json) write_total |>
           Lwt_io.printl
