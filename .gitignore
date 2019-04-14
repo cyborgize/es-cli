@@ -1,6 +1,3 @@
 _build
-setup.log
-setup.data
-*.native
-*.byte
-/version.ml
+.merlin
+*.install
