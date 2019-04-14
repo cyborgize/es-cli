@@ -51,8 +51,8 @@ let es7_config = {
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
 
 let get_es_version_config' = function
-  | None | Some (`ES5 | `ES6) -> es6_config
-  | Some `ES7 -> es7_config
+  | Some (`ES5 | `ES6) -> es6_config
+  | None | Some `ES7 -> es7_config
 
 let get_es_version_config { Config_t.version = config_version; _ } cluster_version =
   get_es_version_config' (coalesce [ !es_version; cluster_version; config_version; ])
