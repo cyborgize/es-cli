@@ -489,6 +489,7 @@ let search config =
   let default_operator = ref None in
   let explain = ref false in
   let show_count = ref false in
+  let track_total_hits = ref None in
   let retry = ref false in
   let format = ref [] in
   let args =
@@ -511,7 +512,8 @@ let search config =
     may_str "d" default_field "<field> #default field to be used for query_string" ::
     may_str "O" default_operator "<OR|AND> #default field to be used for query_string" ::
     bool "E" explain " explain hits" ::
-    bool "c" show_count " output number of hits" ::
+    bool "c" show_count " output total number of hits" ::
+    may_str "C" track_total_hits " track total number hits (true, false, or a number)" ::
     bool "R" retry " retry if there are any failed shards" ::
     str_list "f" format "<hit|id|source> #map hits according to specified format" ::
     args
@@ -540,6 +542,7 @@ let search config =
     "timeout", !timeout;
     "size", int !size;
     "from", int !from;
+    "track_total_hits", !track_total_hits;
     "sort", csv !sort;
     (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
     source_excludes_arg, csv !source_excludes;
