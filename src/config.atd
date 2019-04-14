@@ -1,6 +1,7 @@
 
 type config = {
   ~clusters : (string * cluster_config) list <json repr="object">;
+  ?version : version option;
 }
 
 type cluster_config = {

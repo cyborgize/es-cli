@@ -40,7 +40,7 @@ let expand_node =
 let load_config () =
   let config_file = Filename.concat !!Nix.xdg_config_dir "es-cli/config.json" in
   match Sys.file_exists config_file with
-  | false -> { Config_j.clusters = []; }
+  | false -> { Config_j.clusters = []; version = None; }
   | true ->
   let config = Control.with_input_txt config_file IO.read_all in
   Config_j.config_of_string config

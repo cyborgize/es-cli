@@ -48,12 +48,14 @@ let es7_config = {
   write_total = Elastic_j.write_total;
 }
 
+let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
+
 let get_es_version_config' = function
   | None | Some (`ES5 | `ES6) -> es6_config
   | Some `ES7 -> es7_config
 
-let get_es_version_config version =
-  get_es_version_config' (match !es_version with Some _ as version -> version | None -> version)
+let get_es_version_config { Config_t.version = config_version; _ } cluster_version =
+  get_es_version_config' (coalesce [ !es_version; cluster_version; config_version; ])
 
 let get_body_query_file body_query =
   match body_query <> "" && body_query.[0] = '@' with
@@ -248,7 +250,7 @@ let get config =
   | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config version in
+  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config config version in
   let args = [
     (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
     source_excludes_arg, csv !source_excludes;
@@ -536,7 +538,7 @@ let search config =
     | index :: doc_type -> host, index, one doc_type, one body_query
   in
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config version in
+  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config config version in
   let body_query = Option.map get_body_query_file body_query in
   let args = [
     "timeout", !timeout;
