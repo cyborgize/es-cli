@@ -30,7 +30,7 @@ type 'source hit = {
 }
 
 type ('hits, 'total) hits' = {
-  total : 'total;
+  ?total : 'total option;
   ~max_score : float;
   hits : 'hits;
 }

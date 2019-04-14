@@ -600,7 +600,7 @@ let search config =
       in
       match response_hits with
       | None -> log #error "no hits"; clear_scroll scroll_id
-      | Some ({ Elastic_t.total = { value; relation; }; hits; _ } as response_hits) ->
+      | Some ({ Elastic_t.total; hits; _ } as response_hits) ->
       let hits =
         match retry with
         | false -> hits
@@ -613,10 +613,15 @@ let search config =
         end hits
       in
       let%lwt () =
-        match show_count, relation with
-        | false, _ -> Lwt.return_unit
-        | true, `Eq -> Lwt_io.printlf "%d" value
-        | true, `Gte -> Lwt_io.printlf ">=%d" value
+        match show_count with
+        | false -> Lwt.return_unit
+        | true ->
+        match total with
+        | None -> Lwt_io.printl "unknown"
+        | Some { value; relation; } ->
+        match relation with
+        | `Eq -> Lwt_io.printlf "%d" value
+        | `Gte -> Lwt_io.printlf ">=%d" value
       in
       let%lwt () =
         match format, show_count, retry with
