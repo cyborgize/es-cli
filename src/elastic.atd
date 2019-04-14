@@ -39,12 +39,17 @@ type ('hit, 'total) hits = ('hit list, 'total) hits'
 
 type total = {
   value : int;
-  relation : string;
+  relation : total_relation;
 }
+
+type total_relation = [
+  | Eq <json name="eq">
+  | Gte <json name="gte">
+]
 
 type es6_total = int wrap <ocaml
   t="total"
-  wrap="fun value -> { value; relation = \"eq\"; }"
+  wrap="fun value -> { value; relation = `Eq; }"
   unwrap="fun { value; _ } -> value"
 >
 
