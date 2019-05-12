@@ -13,17 +13,14 @@ let cmd = ref []
 
 let http_timeout = ref (Time.seconds 60)
 
-let verbose = ref false
-
-let es_version = ref None
+type common_args = {
+  es_version : Config_t.version option;
+  verbose : bool;
+}
 
 let args =
   ExtArg.[
-    "-5", Unit (fun () -> es_version := Some `ES5), " force ES version 5.x";
-    "-6", Unit (fun () -> es_version := Some `ES6), " force ES version 6.x";
-    "-7", Unit (fun () -> es_version := Some `ES7), " force ES version 7.x";
     "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
-    bool "v" verbose " log HTTP requests";
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
@@ -54,8 +51,8 @@ let get_es_version_config' = function
   | Some (`ES5 | `ES6) -> es6_config
   | None | Some `ES7 -> es7_config
 
-let get_es_version_config { Config_t.version = config_version; _ } cluster_version =
-  get_es_version_config' (coalesce [ !es_version; cluster_version; config_version; ])
+let get_es_version_config es_version { Config_t.version = config_version; _ } cluster_version =
+  get_es_version_config' (coalesce [ es_version; cluster_version; config_version; ])
 
 let get_body_query_file body_query =
   match body_query <> "" && body_query.[0] = '@' with
@@ -144,51 +141,44 @@ let compare_fmt = function
   | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
   | `None -> (fun _ -> false)
 
-let http_request_lwt' ?body action url =
-  Web.http_request_lwt' ~verbose:!verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
+let http_request_lwt' ?verbose ?body action url =
+  Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
 
-let http_request_lwt ?body action url =
-  Web.http_request_lwt ~verbose:!verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
+let http_request_lwt ?verbose ?body action url =
+  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action url
 
-let alias config =
-  let add_remove action =
-    ExtArg.make_arg @@ object
-      method store v =
-        let index = ref "" in
-        Arg.(Tuple [ Set_string index; String (fun alias -> tuck v (action, (!index, alias))); ])
-      method kind = "two strings"
-      method show v =
-        List.map (fun (action, (index, alias)) -> sprintf "%s index %s alias %s" action index alias) !v |>
-        String.concat " "
-    end
-  in
-  let actions = ref [] in
-  let args =
-    add_remove "add" "a" actions " add alias" ::
-    add_remove "remove" "r" actions " remove alias" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "alias [options] <host>\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_ -> usage ()
-  | [host] ->
+type alias_action = {
+  action : [ `Add | `Remove ];
+  index : string;
+  alias : string;
+}
+
+type alias_args = {
+  host : string;
+  actions : alias_action list;
+}
+
+let alias { verbose; _ } {
+    host;
+    actions;
+  } =
+  let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
   let url = sprintf "%s/_aliases" host in
   let (action, body) =
-    match !actions with
+    match actions with
     | [] -> `GET, None
     | actions ->
-    let actions = List.map (fun (action, (index, alias)) -> [ action, { Elastic_t.index; alias; }; ]) actions in
+    let actions = List.map (fun { action; index; alias; } -> [ action, { Elastic_t.index; alias; }; ]) actions in
     `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_t.actions; }))
   in
   Lwt_main.run @@
-  match%lwt http_request_lwt ?body action url with
+  match%lwt http_request_lwt ~verbose ?body action url with
   | exception exn -> log #error ~exn "alias"; Lwt.fail exn
   | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let flush config =
+let flush { verbose; _ } config =
   let force = ref false in
   let synced = ref false in
   let wait = ref false in
@@ -221,12 +211,12 @@ let flush config =
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (List.filter_map id path) ^ args in
   Lwt_main.run @@
-  match%lwt http_request_lwt `POST url with
+  match%lwt http_request_lwt ~verbose `POST url with
   | exception exn -> log #error ~exn "flush"; Lwt.fail exn
   | `Error error -> log #error "flush error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let get config =
+let get { verbose; es_version; _ } config =
   let source_includes = ref [] in
   let source_excludes = ref [] in
   let routing = ref [] in
@@ -250,7 +240,7 @@ let get config =
   | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
   | host :: index :: doc ->
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config config version in
+  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config es_version config version in
   let args = [
     (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
     source_excludes_arg, csv !source_excludes;
@@ -268,7 +258,7 @@ let get config =
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
-  match%lwt http_request_lwt' `GET url with
+  match%lwt http_request_lwt' ~verbose `GET url with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
@@ -289,7 +279,7 @@ let get config =
   String.join " " |>
   Lwt_io.printl
 
-let health config =
+let health { verbose; _ } config =
   ExtArg.parse ~f:(tuck cmd) args;
   let all_hosts = lazy (List.map (fun (name, _) -> Common.get_cluster config name) config.Config_t.clusters) in
   let hosts =
@@ -313,7 +303,7 @@ let health config =
         "active_shards_percent";
       ] in
       let url = sprintf "%s/_cat/health?h=%s" host (String.concat "," columns) in
-      match%lwt http_request_lwt `GET url with
+      match%lwt http_request_lwt ~verbose `GET url with
       | exception exn -> log #error ~exn "health"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
       | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s error %s\n" host error)
       | `Ok result -> Lwt.return (i, sprintf "%s %s" host result)
@@ -322,7 +312,7 @@ let health config =
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
   Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
-let nodes config =
+let nodes { verbose; _ } config =
   let check_nodes = ref [] in
   let args =
     let open ExtArg in
@@ -339,7 +329,7 @@ let nodes config =
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   let url = host ^ "/_nodes" in
   Lwt_main.run @@
-  match%lwt http_request_lwt `GET url with
+  match%lwt http_request_lwt ~verbose `GET url with
   | exception exn -> log #error ~exn "nodes"; Lwt.fail exn
   | `Error error -> log #error "nodes error : %s" error; Lwt.fail_with error
   | `Ok result ->
@@ -364,7 +354,7 @@ let nodes config =
   in
   Lwt.return_unit
 
-let put config =
+let put { verbose; _ } config =
   let routing = ref None in
   let args =
     let open ExtArg in
@@ -387,12 +377,12 @@ let put config =
   let url = String.concat "/" (host :: index :: doc) ^ args in
   Lwt_main.run @@
   let%lwt body = match body with [body] -> Lwt.return body | [] -> Lwt_io.read Lwt_io.stdin | _ -> assert%lwt false in
-  match%lwt http_request_lwt ~body:(`Raw (json_content_type, body)) `PUT url with
+  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT url with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let recovery config =
+let recovery { verbose; _ } config =
   let two_str_list =
     ExtArg.make_arg @@ object
       method store v =
@@ -428,7 +418,7 @@ let recovery config =
   let { Common.host; _ } = Common.get_cluster config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_recovery"; ]) in
   Lwt_main.run @@
-  match%lwt http_request_lwt `GET url with
+  match%lwt http_request_lwt ~verbose `GET url with
   | exception exn -> log #error ~exn "recovery"; Lwt.fail exn
   | `Error error -> log #error "recovery error : %s" error; Lwt.fail_with error
   | `Ok result ->
@@ -457,7 +447,7 @@ let recovery config =
     end shards
   end indices
 
-let refresh config =
+let refresh { verbose; _ } config =
   ExtArg.parse ~f:(tuck cmd) args;
   let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
   match List.rev !cmd with
@@ -466,107 +456,99 @@ let refresh config =
   let { Common.host; _ } = Common.get_cluster config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_refresh"; ]) in
   Lwt_main.run @@
-  match%lwt http_request_lwt `POST url with
+  match%lwt http_request_lwt ~verbose `POST url with
   | exception exn -> log #error ~exn "refresh"; Lwt.fail exn
   | `Error error -> log #error "refresh error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let search config =
-  let timeout = ref None in
-  let size = ref None in
-  let from = ref None in
-  let sort = ref [] in
-  let source_includes = ref [] in
-  let source_excludes = ref [] in
-  let fields = ref [] in
-  let routing = ref [] in
-  let preference = ref [] in
-  let scroll = ref None in
-  let slice_id = ref None in
-  let slice_max = ref None in
-  let query = ref None in
-  let analyzer = ref None in
-  let analyze_wildcard = ref false in
-  let default_field = ref None in
-  let default_operator = ref None in
-  let explain = ref false in
-  let show_count = ref false in
-  let track_total_hits = ref None in
-  let retry = ref false in
-  let format = ref [] in
-  let args =
-    let open ExtArg in
-    may_str "t" timeout "<duration> set operation timeout (format: 10s, 20000ms, 2m)" ::
-    may_int "n" size "<n> #set search limit" ::
-    may_int "o" from "<n> #set search offset" ::
-    str_list "s" sort "<field[:dir]> #set sort order" ::
-    str_list "i" source_includes "<field> #include source field" ::
-    str_list "e" source_excludes "<field> #exclude source field" ::
-    str_list "F" fields "<field> #include stored field" ::
-    str_list "r" routing "<routing> #set routing" ::
-    str_list "p" preference "<preference> #set preference" ::
-    may_str "S" scroll "<interval> #scroll search" ::
-    may_int "N" slice_max "<n> #specify number of slices for sliced scroll" ::
-    may_int "I" slice_id "<id> #specify slice id for sliced scroll" ::
-    may_str "q" query "<query> #query using query_string" ::
-    may_str "a" analyzer "<analyzer> #analyzer to be used for query_string" ::
-    bool "w" analyze_wildcard " analyze wildcard and prefix queries" ::
-    may_str "d" default_field "<field> #default field to be used for query_string" ::
-    may_str "O" default_operator "<OR|AND> #default field to be used for query_string" ::
-    bool "E" explain " explain hits" ::
-    bool "c" show_count " output total number of hits" ::
-    may_str "C" track_total_hits " track total number hits (true, false, or a number)" ::
-    bool "R" retry " retry if there are any failed shards" ::
-    str_list "f" format "<hit|id|source> #map hits according to specified format" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "search [options] <host> <index>[/<doc_type>] [query]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_::_::_ -> usage ()
-  | host :: rest ->
-  let (host, index, doc_type, body_query) =
-    let by_slash = Re2.create_exn "/" in
-    match Re2.split by_slash host, rest with
-    | [], _ | _, _::_::_::_ -> assert false
-    | [_], [] | _::_::_, _::_::_ | _::_::_::_::_, _ -> usage ()
-    | host :: index :: doc_type, body_query -> host, index, one doc_type, one body_query
-    | [host], index :: body_query ->
-    match Re2.split by_slash index with
-    | [] -> assert false
-    | _::_::_::_ -> usage ()
-    | index :: doc_type -> host, index, one doc_type, one body_query
-  in
+type search_args = {
+  host : string;
+  index : string;
+  doc_type : string option;
+  timeout : string option;
+  size : int option;
+  from : int option;
+  sort : string list;
+  source_includes : string list;
+  source_excludes : string list;
+  fields : string list;
+  routing : string list;
+  preference : string list;
+  scroll : string option;
+  slice_id : int option;
+  slice_max : int option;
+  query : string option;
+  body_query : string option;
+  analyzer : string option;
+  analyze_wildcard : bool;
+  default_field : string option;
+  default_operator : string option;
+  explain : bool;
+  show_count : bool;
+  track_total_hits : string option;
+  retry : bool;
+  format : string list;
+}
+
+let search { verbose; es_version; _ } {
+    host;
+    index;
+    doc_type;
+    timeout;
+    size;
+    from;
+    sort;
+    source_includes;
+    source_excludes;
+    fields;
+    routing;
+    preference;
+    scroll;
+    slice_id;
+    slice_max;
+    query;
+    body_query;
+    analyzer;
+    analyze_wildcard;
+    default_field;
+    default_operator;
+    explain;
+    show_count;
+    track_total_hits;
+    retry;
+    format;
+  } =
+  let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config config version in
+  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config es_version config version in
   let body_query = Option.map get_body_query_file body_query in
   let args = [
-    "timeout", !timeout;
-    "size", int !size;
-    "from", int !from;
-    "track_total_hits", !track_total_hits;
-    "sort", csv !sort;
-    (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
-    source_excludes_arg, csv !source_excludes;
-    "stored_fields", csv !fields;
-    "routing", csv !routing;
-    "preference", csv ~sep:"|" !preference;
-    "explain", flag !explain;
-    "scroll", !scroll;
-    "analyzer", !analyzer;
-    "analyze_wildcard", flag !analyze_wildcard;
-    "df", !default_field;
-    "default_operator", !default_operator;
-    "q", !query;
+    "timeout", timeout;
+    "size", int size;
+    "from", int from;
+    "track_total_hits", track_total_hits;
+    "sort", csv sort;
+    (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
+    source_excludes_arg, csv source_excludes;
+    "stored_fields", csv fields;
+    "routing", csv routing;
+    "preference", csv ~sep:"|" preference;
+    "explain", flag explain;
+    "scroll", scroll;
+    "analyzer", analyzer;
+    "analyze_wildcard", flag analyze_wildcard;
+    "df", default_field;
+    "default_operator", default_operator;
+    "q", query;
   ] in
   let format =
-    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) !format |>
+    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) format |>
     List.concat
   in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
   let body_query =
-    match !slice_id, !slice_max with
+    match slice_id, slice_max with
     | None, _ | _, None -> body_query
     | Some slice_id, Some slice_max ->
     let slice = "slice", `Assoc [ "id", `Int slice_id; "max", `Int slice_max; ] in
@@ -579,19 +561,19 @@ let search config =
   in
   let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let url = String.concat "/" (List.filter_map id [ Some host; Some index; doc_type; Some ("_search" ^ args); ]) in
-  let htbl = Hashtbl.create (if !retry then Option.default 10 !size else 0) in
+  let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
   let rec search () =
-    match%lwt http_request_lwt ?body `POST url with
+    match%lwt http_request_lwt ~verbose ?body `POST url with
     | exception exn -> log #error ~exn "search"; Lwt.fail exn
     | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
     | `Ok result ->
-    match !show_count, format, !scroll, !retry with
+    match show_count, format, scroll, retry with
     | false, [], None, false -> Lwt_io.printl result
     | show_count, format, scroll, retry ->
     let scroll_url = host ^ "/_search/scroll" in
     let clear_scroll' scroll_id =
       let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; } in
-      match%lwt http_request_lwt ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
+      match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, clear_scroll)) `DELETE scroll_url with
       | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
       | `Ok _ok -> Lwt.return_unit
     in
@@ -649,7 +631,7 @@ let search config =
       | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
       | _, Some scroll, Some scroll_id ->
       let scroll = Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; } in
-      match%lwt http_request_lwt ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
+      match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, scroll)) `POST scroll_url with
       | `Error error ->
         log #error "scroll error : %s" error;
         let%lwt () = clear_scroll' scroll_id in
@@ -660,25 +642,222 @@ let search config =
   in
   Lwt_main.run @@ search ()
 
-let () =
-  let tools = [
-    "alias", alias;
-    "flush", flush;
-    "get", get;
-    "health", health;
-    "nodes", nodes;
-    "put", put;
-    "recovery", recovery;
-    "refresh", refresh;
-    "search", search;
-  ] in
-  match Action.args with
-  | [] | ("help" | "-help" | "--help") :: [] -> usage tools
-  | "version"::[] -> print_endline Common.version
-  | name :: _ ->
-  match List.assoc name tools with
-  | exception Not_found -> usage tools
-  | tool ->
-  let config = Common.load_config () in
-  incr Arg.current;
-  tool config
+open Cmdliner
+
+let common_args =
+  let args es_version verbose = { es_version; verbose; } in
+  let docs = Manpage.s_common_options in
+  let es_version =
+    Arg.(last & vflag_all [ None; ] [
+      Some `ES5, Arg.info [ "5"; ] ~docs ~doc:"force ES version 5.x";
+      Some `ES6, Arg.info [ "6"; ] ~docs ~doc:"force ES version 6.x";
+      Some `ES7, Arg.info [ "7"; ] ~docs ~doc:"force ES version 7.x";
+    ])
+  in
+  let verbose =
+    let doc = "verbose output" in
+    Arg.(value & flag & info [ "v"; "verbose"; ] ~docs ~doc)
+  in
+  Term.(const args $ es_version $ verbose)
+
+let default_tool =
+  let doc = "a command-line client for ES" in
+  let sdocs = Manpage.s_common_options in
+  let exits = Term.default_exits in
+  let man = [] in
+  Term.(ret (const (fun _ -> `Help (`Pager, None)) $ common_args), info "es" ~version:Common.version ~doc ~sdocs ~exits ~man)
+
+let alias_tool =
+  let alias
+      common_args
+      host
+      index
+      add
+      remove
+    =
+    let map action = function
+      | alias, Some index -> { action; index; alias; }
+      | alias, None ->
+      match index with
+      | Some index -> { action; index; alias; }
+      | None -> Exn.fail "INDEX is not specified for %s" alias
+    in
+    let add = List.map (map `Add) add in
+    let remove = List.map (map `Remove) remove in
+    alias common_args {
+      host;
+      actions = add @ remove;
+    }
+  in
+  let action =
+    let parse x =
+      match Stre.splitc x '=' with
+      | alias, index -> Ok (alias, Some index)
+      | exception Not_found -> Ok (x, None)
+    in
+    let print fmt (alias, index) =
+      match index with
+      | Some index -> Format.fprintf fmt "%s=%s" alias index
+      | None -> Format.fprintf fmt "%s" alias
+    in
+    Arg.conv (parse, print)
+  in
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
+  let index =
+    let doc = "index to operate on. If not provided, -a and -r must include the =INDEX part." in
+    Arg.(value & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
+  in
+  let add =
+    let doc = "add index INDEX to alias ALIAS" in
+    Arg.(value & opt_all action [] & info [ "a"; "add"; ] ~docv:"ALIAS[=INDEX]" ~doc)
+  in
+  let remove =
+    let doc = "remove index INDEX from alias ALIAS" in
+    Arg.(value & opt_all action [] & info [ "r"; "remove"; ] ~docv:"ALIAS[=INDEX]" ~doc)
+  in
+  let open Term in
+  const alias $
+    common_args $
+    host $
+    index $
+    add $
+    remove,
+  let doc = "add or remove index aliases" in
+  let exits = default_exits in
+  let man = [] in
+  info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
+let search_tool =
+  let search
+      common_args
+      host
+      index
+      doc_type
+      timeout
+      size
+      from
+      sort
+      source_includes
+      source_excludes
+      fields
+      routing
+      preference
+      scroll
+      slice_id
+      slice_max
+      query
+      body_query
+      analyzer
+      analyze_wildcard
+      default_field
+      default_operator
+      explain
+      show_count
+      track_total_hits
+      retry
+      format
+    =
+    search common_args {
+      host;
+      index;
+      doc_type;
+      timeout;
+      size;
+      from;
+      sort;
+      source_includes;
+      source_excludes;
+      fields;
+      routing;
+      preference;
+      scroll;
+      slice_id;
+      slice_max;
+      query;
+      body_query;
+      analyzer;
+      analyze_wildcard;
+      default_field;
+      default_operator;
+      explain;
+      show_count;
+      track_total_hits;
+      retry;
+      format;
+    }
+  in
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
+  let index = Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc:"index") in
+  let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"doctype") in
+  let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout") in
+  let size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size") in
+  let from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from") in
+  let sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort") in
+  let source_includes = Arg.(value & opt_all string [] & info [ "i"; "source-includes"; ] ~doc:"source_includes") in
+  let source_excludes = Arg.(value & opt_all string [] & info [ "e"; "source-excludes"; ] ~doc:"source_excludes") in
+  let fields = Arg.(value & opt_all string [] & info [ "F"; "fields"; ] ~doc:"fields") in
+  let routing = Arg.(value & opt_all string [] & info [ "r"; "routing"; ] ~doc:"routing") in
+  let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference") in
+  let scroll = Arg.(value & opt (some string) None & info [ "S"; "scroll"; ] ~doc:"scroll") in
+  let slice_max = Arg.(value & opt (some int) None & info [ "N"; "slice-max"; ] ~doc:"slice_max") in
+  let slice_id = Arg.(value & opt (some int) None & info [ "I"; "slice-id"; ] ~doc:"slice_id") in
+  let query = Arg.(value & opt (some string) None & info [ "q"; "query"; ] ~doc:"query using query_string query") in
+  let body_query = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY_QUERY" ~doc:"body query") in
+  let analyzer = Arg.(value & opt (some string) None & info [ "a"; "analyzer"; ] ~doc:"analyzer to be used for query_string query") in
+  let analyze_wildcard = Arg.(value & flag & info [ "w"; "analyze-wildcard"; ] ~doc:"analyze wildcard and prefix queries in query_string query") in
+  let default_field = Arg.(value & opt (some string) None & info [ "d"; "default-field"; ] ~doc:"default field to be used for query_string query") in
+  let default_operator = Arg.(value & opt (some string) None & info [ "O"; "default-operator"; ] ~doc:"default operator to be used for query_string query") in
+  let explain = Arg.(value & flag & info [ "E"; "explain"; ] ~doc:"explain hits") in
+  let show_count = Arg.(value & flag & info [ "c"; "show-count"; ] ~doc:"output total number of hits") in
+  let track_total_hits = Arg.(value & opt (some string) None & info [ "C"; "track-total-hits"; ] ~doc:"track total number hits (true, false, or a number)") in
+  let retry = Arg.(value & flag & info [ "R"; "retry"; ] ~doc:"retry if there are any failed shards") in
+  let format = Arg.(value & opt_all string [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)") in
+  let open Term in
+  const search $
+    common_args $
+    host $
+    index $
+    doc_type $
+    timeout $
+    size $
+    from $
+    sort $
+    source_includes $
+    source_excludes $
+    fields $
+    routing $
+    preference $
+    scroll $
+    slice_id $
+    slice_max $
+    query $
+    body_query $
+    analyzer $
+    analyze_wildcard $
+    default_field $
+    default_operator $
+    explain $
+    show_count $
+    track_total_hits $
+    retry $
+    format,
+  let doc = "search" in
+  let exits = default_exits in
+  let man = [] in
+  info "search" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
+let tools = [
+  alias_tool;
+(*
+  flush_tool;
+  get_tool;
+  health_tool;
+  nodes_tool;
+  put_tool;
+  recovery_tool;
+  refresh_tool;
+*)
+  search_tool;
+]
+
+let () = Term.(exit (eval_choice default_tool tools))

@@ -94,7 +94,18 @@ type aliases = {
   actions : alias_action list;
 }
 
-type alias_action = (string * index_alias) list <json repr="object">
+type alias_action_name = [
+  | Add <json name="add">
+  | Remove <json anme="remove">
+]
+
+type alias_action_name' = string wrap <ocaml
+  t="[ `Add | `Remove ]"
+  wrap="function \"add\" -> `Add | \"remove\" -> `Remove | x -> Devkit.Exn.fail \"unknown action %s\" x"
+  unwrap="function `Add -> \"add\" | `Remove -> \"remove\""
+>
+
+type alias_action = (alias_action_name' * index_alias) list <json repr="object">
 
 type index_alias = {
   index : string;

@@ -1,7 +1,7 @@
 (executable
   (name es)
   (public_name es)
-  (libraries atdgen devkit extlib re2)
+  (libraries atdgen cmdliner devkit extlib re2)
   (modules :standard \ gen_version)
   (preprocess (pps lwt_ppx)))
 
