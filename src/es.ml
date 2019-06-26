@@ -153,6 +153,28 @@ let http_request_lwt' ?verbose ?body action host path args =
 let http_request_lwt ?verbose ?body action host path args =
   Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
 
+module Common_args = struct
+
+  open Cmdliner
+
+  let index = Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc:"index")
+
+  let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"doctype")
+
+  let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout")
+
+  let source_includes = Arg.(value & opt_all string [] & info [ "i"; "source-includes"; ] ~doc:"source_includes")
+
+  let source_excludes = Arg.(value & opt_all string [] & info [ "e"; "source-excludes"; ] ~doc:"source_excludes")
+
+  let routing = Arg.(value & opt_all string [] & info [ "r"; "routing"; ] ~doc:"routing")
+
+  let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference")
+
+end
+
+open Common_args
+
 type alias_action = {
   action : [ `Add | `Remove ];
   index : string;
@@ -845,17 +867,10 @@ let search_tool =
     }
   in
   let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
-  let index = Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc:"index") in
-  let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"doctype") in
-  let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout") in
   let size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size") in
   let from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from") in
   let sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort") in
-  let source_includes = Arg.(value & opt_all string [] & info [ "i"; "source-includes"; ] ~doc:"source_includes") in
-  let source_excludes = Arg.(value & opt_all string [] & info [ "e"; "source-excludes"; ] ~doc:"source_excludes") in
   let fields = Arg.(value & opt_all string [] & info [ "F"; "fields"; ] ~doc:"fields") in
-  let routing = Arg.(value & opt_all string [] & info [ "r"; "routing"; ] ~doc:"routing") in
-  let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference") in
   let scroll = Arg.(value & opt (some string) None & info [ "S"; "scroll"; ] ~doc:"scroll") in
   let slice_max = Arg.(value & opt (some int) None & info [ "N"; "slice-max"; ] ~doc:"slice_max") in
   let slice_id = Arg.(value & opt (some int) None & info [ "I"; "slice-id"; ] ~doc:"slice_id") in
