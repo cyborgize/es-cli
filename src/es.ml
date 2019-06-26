@@ -178,34 +178,34 @@ let alias { verbose; _ } {
   | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let flush { verbose; _ } config =
-  let force = ref false in
-  let synced = ref false in
-  let wait = ref false in
-  let args =
-    let open ExtArg in
-    ("-f", Set force, " force flush") ::
-    ("-s", Set synced, " synced flush") ::
-    ("-w", Set wait, " wait if ongoing") ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "flush [options] <host> [index1 [index2 ...]]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] -> usage ()
-  | host :: indices ->
+type flush_args = {
+  host : string;
+  indices : string list;
+  force : bool;
+  synced : bool;
+  wait : bool;
+}
+
+let flush { verbose; _ } {
+    host;
+    indices;
+    force;
+    synced;
+    wait;
+  } =
+  let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
   let bool' v = function true -> Some v | false -> None in
   let bool = bool' "true" in
   let args = [
-    "force", bool !force;
-    "wait_if_ongoing", bool !wait;
+    "force", bool force;
+    "wait_if_ongoing", bool wait;
   ] in
   let path = [
     Some host;
     csv indices;
     Some "_flush";
-    bool' "synced" !synced;
+    bool' "synced" synced;
   ] in
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let args = match args with [] -> "" | args -> "?" ^ Web.make_url_args args in
@@ -727,6 +727,44 @@ let alias_tool =
   let man = [] in
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let flush_tool =
+  let flush
+      common_args
+      host
+      indices
+      force
+      synced
+      wait
+    =
+    flush common_args {
+      host;
+      indices;
+      force;
+      synced;
+      wait;
+    }
+  in
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
+  let indices =
+    let doc = "indices to flush" in
+    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+  in
+  let force = Arg.(value & flag & info [ "f"; "force"; ] ~doc:"force flush") in
+  let synced = Arg.(value & flag & info [ "s"; "synced"; ] ~doc:"synced flush") in
+  let wait = Arg.(value & flag & info [ "w"; "wait"; ] ~doc:"wait if another flush is already ongoing") in
+  let open Term in
+  const flush $
+    common_args $
+    host $
+    indices $
+    force $
+    synced $
+    wait,
+  let doc = "flush indices" in
+  let exits = default_exits in
+  let man = [] in
+  info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let search_tool =
   let search
       common_args
@@ -848,8 +886,8 @@ let search_tool =
 
 let tools = [
   alias_tool;
-(*
   flush_tool;
+(*
   get_tool;
   health_tool;
   nodes_tool;
