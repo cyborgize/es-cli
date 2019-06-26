@@ -373,12 +373,7 @@ let flush { verbose; _ } {
     "force", bool force;
     "wait_if_ongoing", bool wait;
   ] in
-  let path = [
-    Some host;
-    csv indices;
-    Some "_flush";
-    bool' "synced" synced;
-  ] in
+  let path = [ csv indices; Some "_flush"; bool' "synced" synced; ] in
   Lwt_main.run @@
   match%lwt http_request_lwt ~verbose `POST host path args with
   | exception exn -> log #error ~exn "flush"; Lwt.fail exn
