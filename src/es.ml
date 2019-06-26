@@ -121,39 +121,112 @@ let map_of_hit_format =
   | `Hit -> (fun hit -> Elastic_j.string_of_option_hit J.write_json hit)
   | `Source -> (fun { source; _ } -> Option.map_default J.to_string "" source)
 
-let map_of_index_shard_format =
-  let open Elastic_t in function
-  | "index" -> (fun index (_shard : index_shard) -> `String index)
-  | "shard" -> (fun _index shard -> `Int shard.id)
-  | "time" -> (fun _index shard -> `Duration (Time.msec shard.index.total_time_in_millis))
-  | "type" -> (fun _index shard -> `Symbol shard.kind)
-  | "stage" -> (fun _index shard -> `Symbol shard.stage)
-  | "source_host" -> (fun _index shard -> match shard.source.host with Some host -> `String host | None -> `None)
-  | "source_node" -> (fun _index shard -> match shard.source.name with Some name -> `String name | None -> `None)
-  | "target_host" -> (fun _index shard -> match shard.target.host with Some host -> `String host | None -> `None)
-  | "target_node" -> (fun _index shard -> match shard.target.name with Some name -> `String name | None -> `None)
-  | "repository" -> (fun _index _shard -> `None) (* FIXME what is repository? *)
-  | "snapshot" -> (fun _index _shard -> `None) (* FIXME what is snapshot? *)
-  | "files" -> (fun _index shard -> `Int shard.index.files.total) (* FIXME what's the difference w/ files_total? *)
-  | "files_recovered" -> (fun _index shard -> `Int shard.index.files.recovered)
-  | "files_percent" -> (fun _index shard -> `String shard.index.files.percent)
-  | "files_total" -> (fun _index shard -> `Int shard.index.files.total)
-  | "bytes" -> (fun _index shard -> `Int shard.index.size.total_in_bytes) (* FIXME what's the difference w/ bytes_total? *)
-  | "bytes_recovered" -> (fun _index shard -> `Int shard.index.size.recovered_in_bytes)
-  | "bytes_percent" -> (fun _index shard -> `String shard.index.size.percent)
-  | "bytes_total" -> (fun _index shard -> `Int shard.index.size.total_in_bytes)
-  | "translog_ops" -> (fun _index shard -> `Int shard.translog.total)
-  | "translog_ops_recovered" -> (fun _index shard -> `Int shard.translog.recovered)
-  | "translog_ops_percent" -> (fun _index shard -> `String shard.translog.percent)
+type index_shard_format = [
+  | `Index
+  | `Shard
+  | `Time
+  | `Type
+  | `Stage
+  | `SourceHost
+  | `SourceNode
+  | `TargetHost
+  | `TargetNode
+  | `Repository
+  | `Snapshot
+  | `Files
+  | `FilesRecovered
+  | `FilesPercent
+  | `FilesTotal
+  | `Bytes
+  | `BytesRecovered
+  | `BytesPercent
+  | `BytesTotal
+  | `TranslogOps
+  | `TranslogOpsRecovered
+  | `TranslogOpsPercent
+]
+
+let index_shard_format_of_string = function
+  | "index" -> `Index
+  | "shard" -> `Shard
+  | "time" -> `Time
+  | "type" -> `Type
+  | "stage" -> `Stage
+  | "source_host" -> `SourceHost
+  | "source_node" -> `SourceNode
+  | "target_host" -> `TargetHost
+  | "target_node" -> `TargetNode
+  | "repository" -> `Repository
+  | "snapshot" -> `Snapshot
+  | "files" -> `Files
+  | "files_recovered" -> `FilesRecovered
+  | "files_percent" -> `FilesPercent
+  | "files_total" -> `FilesTotal
+  | "bytes" -> `Bytes
+  | "bytes_recovered" -> `BytesRecovered
+  | "bytes_percent" -> `BytesPercent
+  | "bytes_total" -> `BytesTotal
+  | "translog_ops" -> `TranslogOps
+  | "translog_ops_recovered" -> `TranslogOpsRecovered
+  | "translog_ops_percent" -> `TranslogOpsPercent
   | s -> Exn.fail "unknown index shard field \"%s\"" s
 
+let string_of_index_shard_format = function
+  | `Index -> "index"
+  | `Shard -> "shard"
+  | `Time -> "time"
+  | `Type -> "type"
+  | `Stage -> "stage"
+  | `SourceHost -> "source_host"
+  | `SourceNode -> "source_node"
+  | `TargetHost -> "target_host"
+  | `TargetNode -> "target_node"
+  | `Repository -> "repository"
+  | `Snapshot -> "snapshot"
+  | `Files -> "files"
+  | `FilesRecovered -> "files_recovered"
+  | `FilesPercent -> "files_percent"
+  | `FilesTotal -> "files_total"
+  | `Bytes -> "bytes"
+  | `BytesRecovered -> "bytes_recovered"
+  | `BytesPercent -> "bytes_percent"
+  | `BytesTotal -> "bytes_total"
+  | `TranslogOps -> "translog_ops"
+  | `TranslogOpsRecovered -> "translog_ops_recovered"
+  | `TranslogOpsPercent -> "translog_ops_percent"
+
+let map_of_index_shard_format =
+  let open Elastic_t in function
+  | `Index -> (fun index (_shard : index_shard) -> `String index)
+  | `Shard -> (fun _index shard -> `Int shard.id)
+  | `Time -> (fun _index shard -> `Duration (Time.msec shard.index.total_time_in_millis))
+  | `Type -> (fun _index shard -> `Symbol shard.kind)
+  | `Stage -> (fun _index shard -> `Symbol shard.stage)
+  | `SourceHost -> (fun _index shard -> match shard.source.host with Some host -> `String host | None -> `None)
+  | `SourceNode -> (fun _index shard -> match shard.source.name with Some name -> `String name | None -> `None)
+  | `TargetHost -> (fun _index shard -> match shard.target.host with Some host -> `String host | None -> `None)
+  | `TargetNode -> (fun _index shard -> match shard.target.name with Some name -> `String name | None -> `None)
+  | `Repository -> (fun _index _shard -> `None) (* FIXME what is repository? *)
+  | `Snapshot -> (fun _index _shard -> `None) (* FIXME what is snapshot? *)
+  | `Files -> (fun _index shard -> `Int shard.index.files.total) (* FIXME what's the difference w/ files_total? *)
+  | `FilesRecovered -> (fun _index shard -> `Int shard.index.files.recovered)
+  | `FilesPercent -> (fun _index shard -> `String shard.index.files.percent)
+  | `FilesTotal -> (fun _index shard -> `Int shard.index.files.total)
+  | `Bytes -> (fun _index shard -> `Int shard.index.size.total_in_bytes) (* FIXME what's the difference w/ bytes_total? *)
+  | `BytesRecovered -> (fun _index shard -> `Int shard.index.size.recovered_in_bytes)
+  | `BytesPercent -> (fun _index shard -> `String shard.index.size.percent)
+  | `BytesTotal -> (fun _index shard -> `Int shard.index.size.total_in_bytes)
+  | `TranslogOps -> (fun _index shard -> `Int shard.translog.total)
+  | `TranslogOpsRecovered -> (fun _index shard -> `Int shard.translog.recovered)
+  | `TranslogOpsPercent -> (fun _index shard -> `String shard.translog.percent)
+
 let default_index_shard_format = [
-  "index"; "shard"; "time"; "type"; "stage";
-  "source_host"; "source_node"; "target_host"; "target_node";
-  "repository"; "snapshot";
-  "files"; "files_recovered"; "files_percent"; "files_total";
-  "bytes"; "bytes_recovered"; "bytes_percent"; "bytes_total";
-  "translog_ops"; "translog_ops_recovered"; "translog_ops_percent";
+  `Index; `Shard; `Time; `Type; `Stage;
+  `SourceHost; `SourceNode; `TargetHost; `TargetNode;
+  `Repository; `Snapshot;
+  `Files; `FilesRecovered; `FilesPercent; `FilesTotal;
+  `Bytes; `BytesRecovered; `BytesPercent; `BytesTotal;
+  `TranslogOps; `TranslogOpsRecovered; `TranslogOpsPercent;
 ]
 
 let map_show = function
@@ -448,39 +521,31 @@ let put { verbose; _ } {
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let recovery { verbose; _ } config =
-  let two_str_list =
-    ExtArg.make_arg @@ object
-      method store v =
-        let s1 = ref "" in
-        Arg.(Tuple [ Set_string s1; String (fun s2 -> tuck v (!s1, s2)); ])
-      method kind = "two strings"
-      method show v =
-        List.map (fun (s1, s2) -> s1 ^ " " ^ s2) !v |>
-        String.concat " "
-    end
-  in
-  let format = ref [] in
-  let filter_include = ref [] in
-  let filter_exclude = ref [] in
-  let args =
-    str_list "f" format "<index|shard|type|stage|...> #map hit according to specified format" ::
-    two_str_list "i" filter_include "<column> <value> #include only shards matching the filter" ::
-    two_str_list "e" filter_exclude "<column> <value> #exclude shards matching the filter" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "recovery [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] -> usage ()
-  | host :: indices ->
-  let format = match !format with [] -> default_index_shard_format | format -> List.rev format in
+type recovery_args = {
+  host : string;
+  indices : string list;
+  filter_include : (index_shard_format * string) list;
+  filter_exclude : (index_shard_format * string) list;
+  format : index_shard_format list list;
+}
+
+let recovery { verbose; _ } {
+    host;
+    indices;
+    filter_include;
+    filter_exclude;
+    format;
+  } =
   let format =
-    List.map (fun format -> List.map map_of_index_shard_format (Stre.nsplitc format ',')) format |>
+    match format with
+    | [] -> List.map map_of_index_shard_format default_index_shard_format
+    | _ ->
+    List.map (List.map map_of_index_shard_format) format |>
     List.concat
   in
-  let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_include in
-  let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) !filter_exclude in
+  let config = Common.load_config () in
+  let filter_include = List.map (fun (k, v) -> map_of_index_shard_format k, v) filter_include in
+  let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) filter_exclude in
   let { Common.host; _ } = Common.get_cluster config host in
   Lwt_main.run @@
   match%lwt http_request_lwt ~verbose `GET host [ csv indices; Some "_recovery"; ] [] with
@@ -952,6 +1017,76 @@ let put_tool =
   let man = [] in
   info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let recovery_tool =
+  let recovery
+      common_args
+      host
+      indices
+      filter_include
+      filter_exclude
+      format
+    =
+    recovery common_args {
+      host;
+      indices;
+      filter_include;
+      filter_exclude;
+      format;
+    }
+  in
+  let indices =
+    let doc = "indices to check" in
+    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+  in
+  let format =
+    let parse format =
+      try
+        Ok (List.map index_shard_format_of_string (Stre.nsplitc format ','))
+      with Failure msg ->
+        Error (`Msg msg)
+    in
+    let print fmt x =
+      String.concat "," (List.map string_of_index_shard_format x) |>
+      Format.fprintf fmt "%s"
+    in
+    Arg.conv (parse, print)
+  in
+  let filter =
+    let parse filter =
+      match Stre.splitc filter '=' with
+      | exception Not_found -> Error (`Msg "filter must have the form COLUMN=VALUE")
+      | column, value ->
+      match index_shard_format_of_string column with
+      | exception (Failure msg) -> Error (`Msg msg)
+      | column -> Ok (column, value)
+    in
+    let print fmt (column, value) =
+      Format.fprintf fmt "%s=%s" (string_of_index_shard_format column) value
+    in
+    Arg.conv (parse, print)
+  in
+  let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format") in
+  let filter_include =
+    let doc = "include only shards matching filter" in
+    Arg.(value & opt_all filter [] & info [ "i"; "include"; ] ~doc ~docv:"COLUMN=VALUE")
+  in
+  let filter_exclude =
+    let doc = "exclude shards matching filter" in
+    Arg.(value & opt_all filter [] & info [ "e"; "exclude"; ] ~doc ~docv:"COLUMN=VALUE")
+  in
+  let open Term in
+  const recovery $
+    common_args $
+    host $
+    indices $
+    filter_include $
+    filter_exclude $
+    format,
+  let doc = "cluster recovery" in
+  let exits = default_exits in
+  let man = [] in
+  info "recovery" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let refresh_tool =
   let refresh
       common_args
@@ -1094,9 +1229,7 @@ let tools = [
   health_tool;
   nodes_tool;
   put_tool;
-(*
   recovery_tool;
-*)
   refresh_tool;
   search_tool;
 ]
