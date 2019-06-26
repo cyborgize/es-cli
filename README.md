@@ -40,7 +40,7 @@ es health # show health for all configured clusters
 ```
 
 ```
-es search cluster2/myindex
+es search cluster2 myindex
 ```
 
 ## Examples
@@ -50,24 +50,29 @@ es search cluster2/myindex
 Add alias `alias1` to `myindex1` and alias `alias2` to `myindex2`:
 
 ```
-es alias cluster1.mydomain.com:9200 -a myindex1 alias1 -a myindex2 alias2
+es alias cluster1.mydomain.com:9200 -a alias1=myindex1 -a alias2=myindex2
 ```
 
-Remove alias `alias1` to `myindex1` and alias `alias2` to `myindex2`:
+Remove alias `alias1` from `myindex1` and alias `alias2` from `myindex2`:
 
 ```
-es alias cluster1.mydomain.com:9200 -r myindex1 alias1 -r myindex2 alias2
+es alias cluster1.mydomain.com:9200 -r alias1=myindex1 -r alias2=myindex2
 ```
 
 Move index alias `current` from `index-3` to `index-4`
 ```
-es alias cluster1.mydomain.com:9200 -r index-3 current -a index-4 current
+es alias cluster1.mydomain.com:9200 -r current=index-3 -a current=index-4
+```
+
+Remove alias `alias1` and add alias `alias2` to `index`.
+```
+es alias cluster1.mydomain.com:9200 index -r alias1 -a alias2
 ```
 
 ### Get document by id
 
 ```
-es get cluster1.mydomain.com:9200/myindex/doctype/docid
+es get cluster1.mydomain.com:9200 myindex docid
 ```
 
 ### Check health of multiple clusters
@@ -93,15 +98,15 @@ es nodes mycluster
 ### Put document with or without id
 
 ```
-es put cluster1.mydomain.com:9200/myindex/doctype/docid '{ "first_name": "John", "last_name": "Doe" }'
+es put cluster1.mydomain.com:9200 myindex docid '{ "first_name": "John", "last_name": "Doe" }'
 ```
 
 ```
-es put cluster1.mydomain.com:9200/myindex/doctype '{ "first_name": "Jane", "last_name": "Doe" }'
+es put cluster1.mydomain.com:9200 myindex '{ "first_name": "Jane", "last_name": "Doe" }'
 ```
 
 ```
-echo '{ "first_name": "Johnny", "last_name": "Doe" }' | es put cluster1.mydomain.com:9200/myindex/doctype/docid2
+echo '{ "first_name": "Johnny", "last_name": "Doe" }' | es put cluster1.mydomain.com:9200 myindex docid2
 ```
 
 ### Check shard recovery status
