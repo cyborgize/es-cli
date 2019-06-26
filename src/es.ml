@@ -422,27 +422,28 @@ let nodes { verbose; _ } {
   in
   Lwt.return_unit
 
-let put { verbose; _ } config =
-  let routing = ref None in
-  let args =
-    let open ExtArg in
-    may_str "r" routing "<routing> #set routing" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "put [options] <host>/<index>/<doc_type>[/<doc_id>] <document>\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_::_ -> usage ()
-  | host :: body ->
-  match Re2.split (Re2.create_exn "/") host with
-  | [] -> assert false
-  | _host :: ([] | [_] | _::_::_::_::_) -> usage ()
-  | host :: index :: doc ->
+type put_args = {
+  host : string;
+  index : string;
+  doc_type : string option;
+  routing : string list;
+  body : string option;
+}
+
+let put { verbose; _ } {
+    host;
+    index;
+    doc_type;
+    routing;
+    body;
+  } =
+  let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
-  let args = [ "routing", !routing; ] in
+  let routing = match routing with [] -> None | _ -> Some (String.concat "," routing) in
+  let args = [ "routing", routing; ] in
   Lwt_main.run @@
-  let%lwt body = match body with [body] -> Lwt.return body | [] -> Lwt_io.read Lwt_io.stdin | _ -> assert%lwt false in
-  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT host [ Some index; one doc; ] args with
+  let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
+  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT host [ Some index; doc_type; ] args with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -917,6 +918,40 @@ let nodes_tool =
   let man = [] in
   info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let put_tool =
+  let put
+      common_args
+      host
+      index
+      doc_type
+      routing
+      body
+    =
+    put common_args {
+      host;
+      index;
+      doc_type;
+      routing;
+      body;
+    }
+  in
+  let body =
+    let doc = "document source to put" in
+    Arg.(value & pos 2 (some string) None & info [] ~docv:"DOC" ~doc)
+  in
+  let open Term in
+  const put $
+    common_args $
+    host $
+    index $
+    doc_type $
+    routing $
+    body,
+  let doc = "put index" in
+  let exits = default_exits in
+  let man = [] in
+  info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let refresh_tool =
   let refresh
       common_args
@@ -1058,8 +1093,8 @@ let tools = [
   get_tool;
   health_tool;
   nodes_tool;
-(*
   put_tool;
+(*
   recovery_tool;
 *)
   refresh_tool;
