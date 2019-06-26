@@ -187,6 +187,8 @@ module Common_args = struct
 
   open Cmdliner
 
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host")
+
   let index = Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc:"index")
 
   let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"doctype")
@@ -766,7 +768,6 @@ let alias_tool =
     in
     Arg.conv (parse, print)
   in
-  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
   let index =
     let doc = "index to operate on. If not provided, -a and -r must include the =INDEX part." in
     Arg.(value & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
@@ -808,7 +809,6 @@ let flush_tool =
       wait;
     }
   in
-  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
   let indices =
     let doc = "indices to flush" in
     Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
@@ -854,7 +854,6 @@ let get_tool =
       format;
     }
   in
-  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
   let index =
     let doc = "index to get" in
     Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
@@ -906,7 +905,6 @@ let refresh_tool =
       indices;
     }
   in
-  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
   let indices =
     let doc = "indices to refresh" in
     Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
@@ -980,7 +978,6 @@ let search_tool =
       format;
     }
   in
-  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
   let size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size") in
   let from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from") in
   let sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort") in
