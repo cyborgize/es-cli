@@ -447,12 +447,16 @@ let recovery { verbose; _ } config =
     end shards
   end indices
 
-let refresh { verbose; _ } config =
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "refresh [options] <host> [<index1> [<index2> [<index3> ...]]]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] -> usage ()
-  | host :: indices ->
+type refresh_args = {
+  host : string;
+  indices : string list;
+}
+
+let refresh { verbose; _ } {
+    host;
+    indices;
+  } =
+  let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
   let url = String.concat "/" (List.filter_map id [ Some host; csv indices; Some "_refresh"; ]) in
   Lwt_main.run @@
@@ -765,6 +769,32 @@ let flush_tool =
   let man = [] in
   info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let refresh_tool =
+  let refresh
+      common_args
+      host
+      indices
+    =
+    refresh common_args {
+      host;
+      indices;
+    }
+  in
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
+  let indices =
+    let doc = "indices to refresh" in
+    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+  in
+  let open Term in
+  const refresh $
+    common_args $
+    host $
+    indices,
+  let doc = "refresh indices" in
+  let exits = default_exits in
+  let man = [] in
+  info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let search_tool =
   let search
       common_args
@@ -893,8 +923,8 @@ let tools = [
   nodes_tool;
   put_tool;
   recovery_tool;
-  refresh_tool;
 *)
+  refresh_tool;
   search_tool;
 ]
 
