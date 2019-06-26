@@ -80,16 +80,46 @@ let one = function [] -> None | [x] -> Some x | _ -> assert false
 
 let flag ?(default=false) = function x when x = default -> None | true -> Some "true" | false -> Some "false"
 
+type hit_format = [
+  | `FullID
+  | `ID
+  | `Type
+  | `Index
+  | `Routing
+  | `Hit
+  | `Source
+]
+
+type hit_formatter = J.t Elastic_t.option_hit -> string
+
+let hit_format_of_string = function
+  | "full_id" -> `FullID
+  | "id" -> `ID
+  | "type" -> `Type
+  | "index" -> `Index
+  | "routing" -> `Routing
+  | "hit" -> `Hit
+  | "source" -> `Source
+  | s -> Exn.fail "unknown hit field \"%s\"" s
+
+let string_of_hit_format = function
+  | `FullID -> "full_id"
+  | `ID -> "id"
+  | `Type -> "type"
+  | `Index -> "index"
+  | `Routing -> "routing"
+  | `Hit -> "hit"
+  | `Source -> "source"
+
 let map_of_hit_format =
   let open Elastic_t in function
-  | "full_id" -> (fun ({ index; doc_type; id; _ } : 'a Elastic_t.option_hit) -> sprintf "/%s/%s/%s" index doc_type id)
-  | "id" -> (fun hit -> hit.id)
-  | "type" -> (fun hit -> hit.doc_type)
-  | "index" -> (fun hit -> hit.index)
-  | "routing" -> (fun hit -> Option.default "" hit.routing)
-  | "hit" -> (fun hit -> Elastic_j.string_of_option_hit J.write_json hit)
-  | "source" -> (fun { source; _ } -> Option.map_default J.to_string "" source)
-  | s -> Exn.fail "unknown hit field \"%s\"" s
+  | `FullID -> (fun ({ index; doc_type; id; _ } : 'a Elastic_t.option_hit) -> sprintf "/%s/%s/%s" index doc_type id)
+  | `ID -> (fun hit -> hit.id)
+  | `Type -> (fun hit -> hit.doc_type)
+  | `Index -> (fun hit -> hit.index)
+  | `Routing -> (fun hit -> Option.default "" hit.routing)
+  | `Hit -> (fun hit -> Elastic_j.string_of_option_hit J.write_json hit)
+  | `Source -> (fun { source; _ } -> Option.map_default J.to_string "" source)
 
 let map_of_index_shard_format =
   let open Elastic_t in function
@@ -170,6 +200,21 @@ module Common_args = struct
   let routing = Arg.(value & opt_all string [] & info [ "r"; "routing"; ] ~doc:"routing")
 
   let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference")
+
+  let format =
+    let parse format =
+      try
+        Ok (List.map hit_format_of_string (Stre.nsplitc format ','))
+      with Failure msg ->
+        Error (`Msg msg)
+    in
+    let print fmt x =
+      String.concat "," (List.map string_of_hit_format x) |>
+      Format.fprintf fmt "%s"
+    in
+    Arg.conv (parse, print)
+
+  let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)")
 
 end
 
@@ -506,7 +551,7 @@ type search_args = {
   show_count : bool;
   track_total_hits : string option;
   retry : bool;
-  format : string list;
+  format : hit_format list list;
 }
 
 let search { verbose; es_version; _ } {
@@ -561,7 +606,7 @@ let search { verbose; es_version; _ } {
     "q", query;
   ] in
   let format =
-    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) format |>
+    List.map (List.map map_of_hit_format) format |>
     List.concat
   in
   let body_query =
@@ -884,7 +929,6 @@ let search_tool =
   let show_count = Arg.(value & flag & info [ "c"; "show-count"; ] ~doc:"output total number of hits") in
   let track_total_hits = Arg.(value & opt (some string) None & info [ "C"; "track-total-hits"; ] ~doc:"track total number hits (true, false, or a number)") in
   let retry = Arg.(value & flag & info [ "R"; "retry"; ] ~doc:"retry if there are any failed shards") in
-  let format = Arg.(value & opt_all string [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)") in
   let open Term in
   const search $
     common_args $
