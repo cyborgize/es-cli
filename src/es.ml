@@ -875,7 +875,7 @@ let flush_tool =
   in
   let indices =
     let doc = "indices to flush" in
-    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+    Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
   in
   let force = Arg.(value & flag & info [ "f"; "force"; ] ~doc:"force flush") in
   let synced = Arg.(value & flag & info [ "s"; "synced"; ] ~doc:"synced flush") in
@@ -971,7 +971,7 @@ let nodes_tool =
   in
   let check_nodes =
     let doc = "check presence of specified nodes" in
-    Arg.(value & pos_all string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc)
+    Arg.(value & pos_right 0 string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc)
   in
   let open Term in
   const nodes $
@@ -1036,7 +1036,7 @@ let recovery_tool =
   in
   let indices =
     let doc = "indices to check" in
-    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+    Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
   in
   let format =
     let parse format =
@@ -1100,7 +1100,7 @@ let refresh_tool =
   in
   let indices =
     let doc = "indices to refresh" in
-    Arg.(value & pos_right 1 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+    Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
   in
   let open Term in
   const refresh $
