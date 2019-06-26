@@ -285,44 +285,39 @@ let flush { verbose; _ } {
   | `Error error -> log #error "flush error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
 
-let get { verbose; es_version; _ } config =
-  let source_includes = ref [] in
-  let source_excludes = ref [] in
-  let routing = ref [] in
-  let preference = ref [] in
-  let format = ref [] in
-  let args =
-    str_list "i" source_includes "<field> #include source field" ::
-    str_list "e" source_excludes "<field> #exclude source field" ::
-    str_list "r" routing "<routing> #set routing" ::
-    str_list "p" preference "<preference> #set preference" ::
-    str_list "f" format "<hit|id|source> #map hit according to specified format" ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "get [options] <host>/<index>[/<doc_type>/<doc_id>]\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_ -> usage ()
-  | [host] ->
-  match Re2.split (Re2.create_exn "/") host with
-  | [] -> assert false
-  | _host :: ([] | [ _; _; ] | _::_::_::_::_) -> usage ()
-  | host :: index :: doc ->
+type get_args = {
+  host : string;
+  index : string;
+  doc_type : string option;
+  timeout : string option;
+  source_includes : string list;
+  source_excludes : string list;
+  routing : string list;
+  preference : string list;
+  format : hit_format list list;
+}
+
+let get { verbose; es_version; _ } {
+    host;
+    index;
+    doc_type;
+    timeout;
+    source_includes;
+    source_excludes;
+    routing;
+    preference;
+    format;
+  } =
+  let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config es_version config version in
   let args = [
-    (if !source_excludes = [] then "_source" else source_includes_arg), csv !source_includes;
-    source_excludes_arg, csv !source_excludes;
-    "routing", csv !routing;
-    "preference", csv ~sep:"|" !preference;
+    "timeout", timeout;
+    (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
+    source_excludes_arg, csv source_excludes;
+    "routing", csv routing;
+    "preference", csv ~sep:"|" preference;
   ] in
-  let format =
-    match doc with
-    | [] -> []
-    | _ ->
-    List.rev_map (fun format -> List.map map_of_hit_format (Stre.nsplitc format ',')) !format |>
-    List.concat
-  in
   Lwt_main.run @@
   match%lwt http_request_lwt' ~verbose `GET host [ Some index; doc_type; ] args with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
@@ -341,7 +336,9 @@ let get { verbose; es_version; _ } config =
   | exception exn -> log #error ~exn "get %s" result; Lwt.fail exn
   | { Elastic_t.found = false; _ } -> Lwt.return_unit
   | hit ->
-  List.map (fun f -> f hit) format |>
+  List.map (List.map map_of_hit_format) format |>
+  List.concat |>
+  List.map (fun f -> f hit) |>
   String.join " " |>
   Lwt_io.printl
 
@@ -826,6 +823,53 @@ let flush_tool =
   let man = [] in
   info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let get_tool =
+  let get
+      common_args
+      host
+      index
+      doc_type
+      timeout
+      source_includes
+      source_excludes
+      routing
+      preference
+      format
+    =
+    get common_args {
+      host;
+      index;
+      doc_type;
+      timeout;
+      source_includes;
+      source_excludes;
+      routing;
+      preference;
+      format;
+    }
+  in
+  let host = Arg.(required & pos 0 (some string) None & info [] ~docv:"HOST" ~doc:"host") in
+  let index =
+    let doc = "index to get" in
+    Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
+  in
+  let open Term in
+  const get $
+    common_args $
+    host $
+    index $
+    doc_type $
+    timeout $
+    source_includes $
+    source_excludes $
+    routing $
+    preference $
+    format,
+  let doc = "get index" in
+  let exits = default_exits in
+  let man = [] in
+  info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let refresh_tool =
   let refresh
       common_args
@@ -966,8 +1010,8 @@ let search_tool =
 let tools = [
   alias_tool;
   flush_tool;
-(*
   get_tool;
+(*
   health_tool;
   nodes_tool;
   put_tool;
