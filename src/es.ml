@@ -264,7 +264,9 @@ module Common_args = struct
 
   let index = Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc:"index")
 
-  let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"doctype")
+  let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"document type")
+
+  let doc_id = Arg.(value & pos 2 (some string) None & info [] ~docv:"DOC_ID" ~doc:"document id")
 
   let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout")
 
@@ -364,6 +366,7 @@ type get_args = {
   host : string;
   index : string;
   doc_type : string option;
+  doc_id : string option;
   timeout : string option;
   source_includes : string list;
   source_excludes : string list;
@@ -376,6 +379,7 @@ let get { verbose; es_version; _ } {
     host;
     index;
     doc_type;
+    doc_id;
     timeout;
     source_includes;
     source_excludes;
@@ -394,7 +398,7 @@ let get { verbose; es_version; _ } {
     "preference", csv ~sep:"|" preference;
   ] in
   Lwt_main.run @@
-  match%lwt http_request_lwt' ~verbose `GET host [ Some index; doc_type; ] args with
+  match%lwt http_request_lwt' ~verbose `GET host [ Some index; doc_type; doc_id; ] args with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
@@ -499,6 +503,7 @@ type put_args = {
   host : string;
   index : string;
   doc_type : string option;
+  doc_id : string option;
   routing : string list;
   body : string option;
 }
@@ -507,6 +512,7 @@ let put { verbose; _ } {
     host;
     index;
     doc_type;
+    doc_id;
     routing;
     body;
   } =
@@ -516,7 +522,7 @@ let put { verbose; _ } {
   let args = [ "routing", routing; ] in
   Lwt_main.run @@
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
-  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT host [ Some index; doc_type; ] args with
+  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT host [ Some index; doc_type; doc_id; ] args with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -899,6 +905,7 @@ let get_tool =
       host
       index
       doc_type
+      doc_id
       timeout
       source_includes
       source_excludes
@@ -910,6 +917,7 @@ let get_tool =
       host;
       index;
       doc_type;
+      doc_id;
       timeout;
       source_includes;
       source_excludes;
@@ -928,6 +936,7 @@ let get_tool =
     host $
     index $
     doc_type $
+    doc_id $
     timeout $
     source_includes $
     source_excludes $
@@ -989,6 +998,7 @@ let put_tool =
       host
       index
       doc_type
+      doc_id
       routing
       body
     =
@@ -996,6 +1006,7 @@ let put_tool =
       host;
       index;
       doc_type;
+      doc_id;
       routing;
       body;
     }
@@ -1010,6 +1021,7 @@ let put_tool =
     host $
     index $
     doc_type $
+    doc_id $
     routing $
     body,
   let doc = "put index" in
