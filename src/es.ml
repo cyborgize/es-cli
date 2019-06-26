@@ -342,11 +342,17 @@ let get { verbose; es_version; _ } {
   String.join " " |>
   Lwt_io.printl
 
-let health { verbose; _ } config =
-  ExtArg.parse ~f:(tuck cmd) args;
+type health_args = {
+  hosts : string list;
+}
+
+let health { verbose; _ } {
+    hosts;
+  } =
+  let config = Common.load_config () in
   let all_hosts = lazy (List.map (fun (name, _) -> Common.get_cluster config name) config.Config_t.clusters) in
   let hosts =
-    match List.rev !cmd with
+    match List.rev hosts with
     | [] -> !!all_hosts
     | hosts ->
     List.map begin function
@@ -870,6 +876,25 @@ let get_tool =
   let man = [] in
   info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let health_tool =
+  let health
+      common_args
+      hosts
+    =
+    health common_args {
+      hosts;
+    }
+  in
+  let hosts = Arg.(value & pos_all string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc:"hosts") in
+  let open Term in
+  const health $
+    common_args $
+    hosts,
+  let doc = "cluster health" in
+  let exits = default_exits in
+  let man = [] in
+  info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let refresh_tool =
   let refresh
       common_args
@@ -1011,8 +1036,8 @@ let tools = [
   alias_tool;
   flush_tool;
   get_tool;
-(*
   health_tool;
+(*
   nodes_tool;
   put_tool;
   recovery_tool;
