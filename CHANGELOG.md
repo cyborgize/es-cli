@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.0.0
+- add support for ES 7.x
+- auto detect ES version
+- search: allow to read body query from @file
+- BREAKING: switch to cmdliner to parse arguments
+
 ## 0.5
 - build: switch build system to dune
 - search: use `-F` to include stored fields

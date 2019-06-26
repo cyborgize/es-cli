@@ -24,6 +24,18 @@ let args =
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
+let make_url host path args =
+  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
+  let path = String.concat "/" ("" :: List.filter_map id path) in
+  let path = String.concat "?" (path :: match args with [] -> [] | _ -> [ Web.make_url_args args; ]) in
+  String.concat "" [ host; path; ]
+
+let http_request_lwt' ?verbose ?body action host path args =
+  Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
+
+let http_request_lwt ?verbose ?body action host path args =
+  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
+
 type es_version_config = {
   source_includes_arg : string;
   source_excludes_arg : string;
@@ -47,12 +59,35 @@ let es7_config = {
 
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
 
-let get_es_version_config' = function
-  | Some (`ES5 | `ES6) -> es6_config
-  | None | Some `ES7 -> es7_config
+let get_es_version { verbose; _ } host =
+  match%lwt http_request_lwt ~verbose `GET host [] [] with
+  | `Error error -> Exn_lwt.fail "could not get ES version : %s" error
+  | `Ok s ->
+  match Elastic_j.main_of_string s with
+  | exception exn -> Exn_lwt.fail ~exn "could not parse ES response to get ES version : %s" s
+  | { Elastic_t.version = { number; }; } ->
+  match Stre.nsplitc number '.' with
+  | [] -> Exn_lwt.fail "empty ES version number : %s" s
+  | "5" :: _ -> Lwt.return `ES5
+  | "6" :: _ -> Lwt.return `ES6
+  | "7" :: _ -> Lwt.return `ES7
+  | other :: _ ->
+  match int_of_string other with
+  | exception exn -> Exn_lwt.fail ~exn "invalid ES version number : %s" number
+  | _ -> Exn_lwt.fail "unsupported ES version number : %s" number
 
-let get_es_version_config es_version { Config_t.version = config_version; _ } cluster_version =
-  get_es_version_config' (coalesce [ es_version; cluster_version; config_version; ])
+let get_es_version_config' = function
+  | `ES5 | `ES6 -> es6_config
+  | `ES7 -> es7_config
+
+let get_es_version_config common_args host es_version { Config_t.version = config_version; _ } cluster_version =
+  let version = coalesce [ es_version; cluster_version; config_version; ] in
+  let%lwt version =
+    match version with
+    | Some (#Wrap.Version.exact as version) -> Lwt.return version
+    | None | Some `Auto -> get_es_version common_args host
+  in
+  Lwt.return (get_es_version_config' version)
 
 let get_body_query_file body_query =
   match body_query <> "" && body_query.[0] = '@' with
@@ -244,18 +279,6 @@ let compare_fmt = function
   | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
   | `None -> (fun _ -> false)
 
-let make_url host path args =
-  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
-  let path = String.concat "/" ("" :: List.filter_map id path) in
-  let path = String.concat "?" (path :: match args with [] -> [] | _ -> [ Web.make_url_args args; ]) in
-  String.concat "" [ host; path; ]
-
-let http_request_lwt' ?verbose ?body action host path args =
-  Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
-
-let http_request_lwt ?verbose ?body action host path args =
-  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
-
 module Common_args = struct
 
   open Cmdliner
@@ -375,7 +398,7 @@ type get_args = {
   format : hit_format list list;
 }
 
-let get { verbose; es_version; _ } {
+let get ({ verbose; es_version; _ } as common_args) {
     host;
     index;
     doc_type;
@@ -389,7 +412,10 @@ let get { verbose; es_version; _ } {
   } =
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; _ } = get_es_version_config es_version config version in
+  Lwt_main.run @@
+  let%lwt { source_includes_arg; source_excludes_arg; _ } =
+    get_es_version_config common_args host es_version config version
+  in
   let args = [
     "timeout", timeout;
     (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
@@ -397,7 +423,6 @@ let get { verbose; es_version; _ } {
     "routing", csv routing;
     "preference", csv ~sep:"|" preference;
   ] in
-  Lwt_main.run @@
   match%lwt http_request_lwt' ~verbose `GET host [ Some index; doc_type; doc_id; ] args with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
@@ -629,7 +654,7 @@ type search_args = {
   format : hit_format list list;
 }
 
-let search { verbose; es_version; _ } {
+let search ({ verbose; es_version; _ } as common_args) {
     host;
     index;
     doc_type;
@@ -659,7 +684,10 @@ let search { verbose; es_version; _ } {
   } =
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
-  let { source_includes_arg; source_excludes_arg; read_total; write_total; } = get_es_version_config es_version config version in
+  Lwt_main.run @@
+  let%lwt { source_includes_arg; source_excludes_arg; read_total; write_total; } =
+    get_es_version_config common_args host es_version config version
+  in
   let body_query = Option.map get_body_query_file body_query in
   let args = [
     "timeout", timeout;
@@ -776,7 +804,7 @@ let search { verbose; es_version; _ } {
     in
     loop result
   in
-  Lwt_main.run @@ search ()
+  search ()
 
 open Cmdliner
 

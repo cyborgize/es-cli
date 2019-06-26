@@ -1,4 +1,6 @@
 
+type json <ocaml module="Yojson.Safe" t="t"> = abstract
+
 type config = {
   ~clusters : (string * cluster_config) list <json repr="object">;
   ?version : version option;
@@ -10,8 +12,4 @@ type cluster_config = {
   ?version : version option;
 }
 
-type version = int wrap <ocaml
-  t="[ `ES5 | `ES6 | `ES7 ]"
-  wrap="function 5 -> `ES5 | 6 -> `ES6 | 7 -> `ES7 | x -> Devkit.Exn.fail \"unknown ES version %d\" x"
-  unwrap="function `ES5 -> 5 | `ES6 -> 6 | `ES7 -> 7"
->
+type version = json wrap <ocaml module="Wrap.Version">

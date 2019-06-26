@@ -1,6 +1,14 @@
 
 type json <ocaml module="Yojson.Safe" t="t"> = abstract
 
+type main = {
+  version : main_version;
+}
+
+type main_version = {
+  number : string;
+}
+
 type id_hit = {
   index <json name="_index"> : string;
   doc_type <json name="_type"> : string;
