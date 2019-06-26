@@ -383,20 +383,18 @@ let health { verbose; _ } {
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
   Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
-let nodes { verbose; _ } config =
-  let check_nodes = ref [] in
-  let args =
-    let open ExtArg in
-    ("-h", Rest (tuck check_nodes), "<node1 [node 2 [node 3...]]> #check presence of specified nodes") ::
-    args
-  in
-  ExtArg.parse ~f:(tuck cmd) args;
-  let usage () = fprintf stderr "nodes [options] <host>\n"; exit 1 in
-  match List.rev !cmd with
-  | [] | _::_::_ -> usage ()
-  | [host] ->
+type nodes_args = {
+  host : string;
+  check_nodes : string list;
+}
+
+let nodes { verbose; _ } {
+    host;
+    check_nodes;
+  } =
+  let config = Common.load_config () in
   let { Common.host; nodes; _ } = Common.get_cluster config host in
-  let check_nodes = match !check_nodes with [] -> Option.default [] nodes | nodes -> nodes in
+  let check_nodes = match check_nodes with [] -> Option.default [] nodes | nodes -> nodes in
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   Lwt_main.run @@
   match%lwt http_request_lwt ~verbose `GET host [ Some "_nodes"; ] [] with
@@ -894,6 +892,31 @@ let health_tool =
   let man = [] in
   info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let nodes_tool =
+  let nodes
+      common_args
+      host
+      check_nodes
+    =
+    nodes common_args {
+      host;
+      check_nodes;
+    }
+  in
+  let check_nodes =
+    let doc = "check presence of specified nodes" in
+    Arg.(value & pos_all string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc)
+  in
+  let open Term in
+  const nodes $
+    common_args $
+    host $
+    check_nodes,
+  let doc = "cluster nodes" in
+  let exits = default_exits in
+  let man = [] in
+  info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let refresh_tool =
   let refresh
       common_args
@@ -1034,8 +1057,8 @@ let tools = [
   flush_tool;
   get_tool;
   health_tool;
-(*
   nodes_tool;
+(*
   put_tool;
   recovery_tool;
 *)
