@@ -8,7 +8,8 @@
 (executable
   (name gen_version)
   (libraries mybuild)
-  (modules gen_version))
+  (modules gen_version)
+  (preprocess (pps lwt_ppx)))
 
 (rule
   (targets version.ml)
