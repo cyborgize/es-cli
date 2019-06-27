@@ -45,6 +45,7 @@ type es_version_config = {
   source_excludes_arg : string;
   read_total : Elastic_t.total json_reader;
   write_total : Elastic_t.total json_writer;
+  default_doc_type : string option;
 }
 
 let es6_config = {
@@ -52,6 +53,7 @@ let es6_config = {
   source_excludes_arg = "_source_exclude";
   read_total = Elastic_j.read_es6_total;
   write_total = Elastic_j.write_es6_total;
+  default_doc_type = None;
 }
 
 let es7_config = {
@@ -59,6 +61,7 @@ let es7_config = {
   source_excludes_arg = "_source_excludes";
   read_total = Elastic_j.read_total;
   write_total = Elastic_j.write_total;
+  default_doc_type = Some "_doc";
 }
 
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
@@ -293,7 +296,7 @@ module Common_args = struct
 
   let doc_type = Arg.(value & opt (some string) None & info [ "T"; "doctype"; ] ~docv:"DOC_TYPE" ~doc:"document type")
 
-  let doc_id = Arg.(value & pos 2 (some string) None & info [] ~docv:"DOC_ID" ~doc:"document id")
+  let doc_id = Arg.(pos 2 (some string) None & info [] ~docv:"DOC_ID" ~doc:"document id")
 
   let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout")
 
@@ -388,7 +391,7 @@ type get_args = {
   host : string;
   index : string;
   doc_type : string option;
-  doc_id : string option;
+  doc_id : string;
   timeout : string option;
   source_includes : string list;
   source_excludes : string list;
@@ -412,8 +415,16 @@ let get ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt { source_includes_arg; source_excludes_arg; _ } =
+  let%lwt { source_includes_arg; source_excludes_arg; default_doc_type; _ } =
     get_es_version_config common_args host es_version config version
+  in
+  let%lwt (doc_type, doc_id) =
+    match coalesce [ doc_type; default_doc_type; ] with
+    | Some doc_type -> Lwt.return (doc_type, doc_id)
+    | None ->
+    match Stre.splitc doc_id '/' with
+    | doc_type, doc_id -> Lwt.return (doc_type, doc_id)
+    | exception Not_found -> Exn_lwt.fail "DOC_TYPE is not provided"
   in
   let args = [
     "timeout", timeout;
@@ -422,7 +433,7 @@ let get ({ verbose; es_version; _ } as common_args) {
     "routing", csv routing;
     "preference", csv ~sep:"|" preference;
   ] in
-  match%lwt http_request_lwt' ~verbose `GET host [ Some index; doc_type; doc_id; ] args with
+  match%lwt http_request_lwt' ~verbose `GET host [ Some index; Some doc_type; Some doc_id; ] args with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
@@ -684,7 +695,7 @@ let search ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt { source_includes_arg; source_excludes_arg; read_total; write_total; } =
+  let%lwt { source_includes_arg; source_excludes_arg; read_total; write_total; _ } =
     get_es_version_config common_args host es_version config version
   in
   let body_query = Option.map get_body_query_file body_query in
@@ -963,7 +974,7 @@ let get_tool =
     host $
     index $
     doc_type $
-    doc_id $
+    Arg.required doc_id $
     timeout $
     source_includes $
     source_excludes $
@@ -1048,7 +1059,7 @@ let put_tool =
     host $
     index $
     doc_type $
-    doc_id $
+    Arg.value doc_id $
     routing $
     body,
   let doc = "put index" in
