@@ -36,11 +36,15 @@ let http_request_lwt' ?verbose ?body action host path args =
 let http_request_lwt ?verbose ?body action host path args =
   Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
 
+type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
+
+type 't json_writer = Bi_outbuf.t -> 't -> unit
+
 type es_version_config = {
   source_includes_arg : string;
   source_excludes_arg : string;
-  read_total : J.lexer_state -> Lexing.lexbuf -> Elastic_t.total;
-  write_total : Bi_outbuf.t -> Elastic_t.total -> unit;
+  read_total : Elastic_t.total json_reader;
+  write_total : Elastic_t.total json_writer;
 }
 
 let es6_config = {
