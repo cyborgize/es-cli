@@ -543,7 +543,7 @@ type put_args = {
   body : string option;
 }
 
-let put { verbose; _ } {
+let put ({ verbose; es_version; _ } as common_args) {
     host;
     index;
     doc_type;
@@ -552,12 +552,29 @@ let put { verbose; _ } {
     body;
   } =
   let config = Common.load_config () in
-  let { Common.host; _ } = Common.get_cluster config host in
+  let { Common.host; version; _ } = Common.get_cluster config host in
+  Lwt_main.run @@
+  let%lwt { default_doc_type; _ } =
+    get_es_version_config common_args host es_version config version
+  in
+  let%lwt (doc_type, doc_id) =
+    match coalesce [ doc_type; default_doc_type; ] with
+    | Some doc_type -> Lwt.return (doc_type, doc_id)
+    | None ->
+    let fail () = Exn_lwt.fail "DOC_TYPE is not provided" in
+    match doc_id with
+    | None -> fail ()
+    | Some doc_id ->
+    match Stre.splitc doc_id '/' with
+    | doc_type, "" -> Lwt.return (doc_type, None)
+    | doc_type, doc_id -> Lwt.return (doc_type, Some doc_id)
+    | exception Not_found -> fail ()
+  in
   let routing = match routing with [] -> None | _ -> Some (String.concat "," routing) in
   let args = [ "routing", routing; ] in
-  Lwt_main.run @@
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
-  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) `PUT host [ Some index; doc_type; doc_id; ] args with
+  let action = if doc_id <> None then `PUT else `POST in
+  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) action host [ Some index; Some doc_type; doc_id; ] args with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -1051,7 +1068,7 @@ let put_tool =
   in
   let body =
     let doc = "document source to put" in
-    Arg.(value & pos 2 (some string) None & info [] ~docv:"DOC" ~doc)
+    Arg.(value & opt (some string) None & info [ "s"; "source"; ] ~docv:"DOC" ~doc)
   in
   let open Term in
   const put $
