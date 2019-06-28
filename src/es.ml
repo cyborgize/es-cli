@@ -328,7 +328,7 @@ module Common_args = struct
 
   let source_excludes = Arg.(value & opt_all string [] & info [ "e"; "source-excludes"; ] ~doc:"source_excludes")
 
-  let routing = Arg.(value & opt_all string [] & info [ "r"; "routing"; ] ~doc:"routing")
+  let routing = Arg.(value & opt (some string) None & info [ "r"; "routing"; ] ~doc:"routing")
 
   let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference")
 
@@ -417,7 +417,7 @@ type get_args = {
   timeout : string option;
   source_includes : string list;
   source_excludes : string list;
-  routing : string list;
+  routing : string option;
   preference : string list;
   format : hit_format list list;
 }
@@ -492,7 +492,7 @@ let get ({ verbose; es_version; _ } as common_args) {
     "timeout", timeout;
     (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
     source_excludes_arg, csv source_excludes;
-    "routing", csv routing;
+    "routing", routing;
     "preference", csv ~sep:"|" preference;
   ] in
   let request unformat = request ~verbose ?body `GET host path args unformat in
@@ -592,7 +592,7 @@ type put_args = {
   index : string;
   doc_type : string option;
   doc_id : string option;
-  routing : string list;
+  routing : string option;
   body : string option;
 }
 
@@ -623,7 +623,6 @@ let put ({ verbose; es_version; _ } as common_args) {
     | doc_type, doc_id -> Lwt.return (doc_type, Some doc_id)
     | exception Not_found -> fail ()
   in
-  let routing = match routing with [] -> None | _ -> Some (String.concat "," routing) in
   let args = [ "routing", routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
   let action = if doc_id <> None then `PUT else `POST in
@@ -710,7 +709,7 @@ type search_args = {
   source_includes : string list;
   source_excludes : string list;
   fields : string list;
-  routing : string list;
+  routing : string option;
   preference : string list;
   scroll : string option;
   slice_id : int option;
@@ -772,7 +771,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
     source_excludes_arg, csv source_excludes;
     "stored_fields", csv fields;
-    "routing", csv routing;
+    "routing", routing;
     "preference", csv ~sep:"|" preference;
     "explain", flag explain;
     "scroll", scroll;
