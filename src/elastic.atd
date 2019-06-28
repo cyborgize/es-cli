@@ -9,6 +9,20 @@ type main_version = {
   number : string;
 }
 
+type multiget_doc = {
+  ?index <json name="_index"> : string option;
+  ?doc_type <json name="_type"> : string option;
+  id <json name="_id"> : string;
+  ?routing <json name="_routing"> : string option;
+  ?source <json name="_source"> : json option;
+  ?stored_fields : string list option;
+}
+
+type multiget = {
+  ~docs: multiget_doc list;
+  ~ids: string list;
+}
+
 type id_hit = {
   index <json name="_index"> : string;
   doc_type <json name="_type"> : string;
@@ -35,6 +49,10 @@ type 'source option_hit = {
 type 'source hit = {
   inherit unit_hit;
   source <json name="_source"> : 'source;
+}
+
+type 'hit docs = {
+  docs : 'hit list;
 }
 
 type ('hits, 'total) hits' = {

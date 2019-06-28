@@ -305,6 +305,10 @@ module Common_args = struct
 
   let doc_id = Arg.(pos 2 (some string) None & info [] ~docv:"DOC_ID" ~doc:"document id")
 
+  let more_doc_ids =
+    let doc = "more document ids for multiget query" in
+    Arg.(value & pos_right 2 string [] & info [] ~docv:"[DOC_ID2[ DOC_ID3...]]" ~doc)
+
   let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout")
 
   let source_includes = Arg.(value & opt_all string [] & info [ "i"; "source-includes"; ] ~doc:"source_includes")
@@ -398,7 +402,7 @@ type get_args = {
   host : string;
   index : string;
   doc_type : string option;
-  doc_id : string;
+  doc_ids : string * string list;
   timeout : string option;
   source_includes : string list;
   source_excludes : string list;
@@ -411,7 +415,7 @@ let get ({ verbose; es_version; _ } as common_args) {
     host;
     index;
     doc_type;
-    doc_id;
+    doc_ids;
     timeout;
     source_includes;
     source_excludes;
@@ -425,10 +429,53 @@ let get ({ verbose; es_version; _ } as common_args) {
   let%lwt ({ source_includes_arg; source_excludes_arg; default_get_doc_type; _ }) =
     get_es_version_config common_args host es_version config version
   in
-  let%lwt (doc_type, doc_id) =
-    match Stre.splitc doc_id '/' with
-    | doc_type, doc_id -> Lwt.return (doc_type, doc_id)
-    | exception Not_found -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
+  let%lwt (body, path, unformat) =
+    match doc_ids with
+    | doc_id, [] ->
+      let%lwt (doc_type, doc_id) =
+        match Stre.nsplitc doc_id '/' with
+        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (doc_type, doc_id)
+        | _ -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
+      in
+      let unformat x = [ Elastic_j.option_hit_of_string J.read_json x; ] in
+      Lwt.return (None, [ Some index; Some doc_type; Some doc_id; ], unformat)
+    | doc_id, other_doc_ids ->
+    let map doc_id =
+      let (index, doc_type, doc_id) =
+        match Stre.nsplitc doc_id '/' with
+        | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
+        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> None, Some doc_type, doc_id
+        | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Some index, Some doc_type, doc_id
+        | _ -> None, None, doc_id
+      in
+      Option.default default_get_doc_type doc_type,
+      { Elastic_t.index; doc_type; id = doc_id; routing = None; source = None; stored_fields = None; }
+    in
+    let (docs, common_doc_type) =
+      let (first_doc_type, first_doc) = map doc_id in
+      List.fold_left begin fun (docs, common_doc_type) doc_id ->
+        let (doc_type, doc) = map doc_id in
+        let common_doc_type =
+          match common_doc_type with
+          | Some doc_type' when doc_type' = doc_type -> common_doc_type
+          | _ -> None
+        in
+        doc :: docs, common_doc_type
+      end ([ first_doc; ], Some first_doc_type) other_doc_ids
+    in
+    let (docs, ids, doc_type) =
+      match common_doc_type with
+      | None -> docs, [], None
+      | Some doc_type ->
+      let ids = List.map (fun ({ id; _ } : Elastic_t.multiget_doc) -> id) docs in
+      [], ids, Some doc_type
+    in
+    let path = [ Some index; doc_type; Some "_mget"; ] in
+    let unformat x =
+      let { Elastic_t.docs; } = Elastic_j.docs_of_string (Elastic_j.read_option_hit J.read_json) x in
+      docs
+    in
+    Lwt.return (Some (Elastic_j.string_of_multiget { docs; ids; }), path, unformat)
   in
   let args = [
     "timeout", timeout;
@@ -437,7 +484,7 @@ let get ({ verbose; es_version; _ } as common_args) {
     "routing", csv routing;
     "preference", csv ~sep:"|" preference;
   ] in
-  match%lwt http_request_lwt' ~verbose `GET host [ Some index; Some doc_type; Some doc_id; ] args with
+  match%lwt http_request_lwt' ~verbose ?body `GET host path args with
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | `Error code ->
     let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
@@ -450,15 +497,16 @@ let get ({ verbose; es_version; _ } as common_args) {
   | exception exn -> log #error ~exn "get"; Lwt.fail exn
   | is_error when is_error || format = [] -> Lwt_io.printl result
   | _ ->
-  match Elastic_j.option_hit_of_string J.read_json result with
+  match unformat result with
   | exception exn -> log #error ~exn "get %s" result; Lwt.fail exn
-  | { Elastic_t.found = false; _ } -> Lwt.return_unit
-  | hit ->
-  List.map (List.map map_of_hit_format) format |>
-  List.concat |>
-  List.map (fun f -> f hit) |>
-  String.join " " |>
-  Lwt_io.printl
+  | docs ->
+  Lwt_list.iter_s begin fun hit ->
+    List.map (List.map map_of_hit_format) format |>
+    List.concat |>
+    List.map (fun f -> f hit) |>
+    String.join " " |>
+    Lwt_io.printl
+  end docs
 
 type health_args = {
   hosts : string list;
@@ -964,6 +1012,7 @@ let get_tool =
       index
       doc_type
       doc_id
+      more_doc_ids
       timeout
       source_includes
       source_excludes
@@ -975,7 +1024,7 @@ let get_tool =
       host;
       index;
       doc_type;
-      doc_id;
+      doc_ids = doc_id, more_doc_ids;
       timeout;
       source_includes;
       source_excludes;
@@ -995,6 +1044,7 @@ let get_tool =
     index $
     doc_type $
     Arg.required doc_id $
+    more_doc_ids $
     timeout $
     source_includes $
     source_excludes $
