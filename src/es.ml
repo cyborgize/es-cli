@@ -498,11 +498,13 @@ let get ({ verbose; es_version; _ } as common_args) {
   let request unformat = request ~verbose ?body `GET host path args unformat in
   match format with
   | [] ->
-    let%lwt (Ok response | Error response) = request id in
-    Lwt_io.printl response
+    begin match%lwt request id with
+    | Error response -> Lwt_io.eprintl response
+    | Ok response -> Lwt_io.printl response
+    end
   | _ ->
   match%lwt request unformat with
-  | Error response -> Lwt_io.printl response
+  | Error response -> Lwt_io.eprintl response
   | Ok docs ->
   Lwt_list.iter_s begin fun hit ->
     List.map (List.map map_of_hit_format) format |>
