@@ -34,11 +34,30 @@ let make_url host path args =
   let path = String.concat "?" (path :: match args with [] -> [] | _ -> [ Web.make_url_args args; ]) in
   String.concat "" [ host; path; ]
 
-let http_request_lwt' ?verbose ?body action host path args =
+let request ?verbose ?body action host path args =
   Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body:(json_body_opt body) action (make_url host path args)
 
-let http_request_lwt ?verbose ?body action host path args =
-  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body:(json_body_opt body) action (make_url host path args)
+let request ?verbose ?body action host path args unformat =
+  match%lwt request ?verbose ?body action host path args with
+  | `Error code -> Exn_lwt.fail "(%d) %s" (Curl.errno code) (Curl.strerror code)
+  | `Ok (code, result) ->
+  let is_error_response result = Elastic_j.((response''_of_string result).error) <> None in
+  let is_severe_error code result = code / 100 <> 2 && (code <> 404 || is_error_response result) in
+  match is_severe_error code result with
+  | exception exn -> Exn_lwt.fail ~exn "http %d : %s" code result
+  | true -> Lwt.return_error result
+  | false ->
+  match unformat result with
+  | exception exn -> Exn_lwt.fail ~exn "unformat %s" result
+  | docs -> Lwt.return_ok docs
+
+exception ErrorExit
+
+let fail_lwt fmt =
+  ksprintf begin fun s ->
+    let%lwt () = Lwt_io.eprintl s in
+    Lwt.fail ErrorExit
+  end fmt
 
 type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
 
@@ -74,14 +93,11 @@ let es7_config = {
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
 
 let get_es_version { verbose; _ } host =
-  match%lwt http_request_lwt ~verbose `GET host [] [] with
-  | `Error error -> Exn_lwt.fail "could not get ES version : %s" error
-  | `Ok s ->
-  match Elastic_j.main_of_string s with
-  | exception exn -> Exn_lwt.fail ~exn "could not parse ES response to get ES version : %s" s
-  | { Elastic_t.version = { number; }; } ->
+  match%lwt request ~verbose `GET host [] [] Elastic_j.main_of_string with
+  | Error error -> fail_lwt "could not get ES version:\n%s" error
+  | Ok { Elastic_t.version = { number; }; } ->
   match Stre.nsplitc number '.' with
-  | [] -> Exn_lwt.fail "empty ES version number : %s" s
+  | [] -> Exn_lwt.fail "empty ES version number"
   | "5" :: _ -> Lwt.return `ES5
   | "6" :: _ -> Lwt.return `ES6
   | "7" :: _ -> Lwt.return `ES7
@@ -363,10 +379,9 @@ let alias { verbose; _ } {
     `POST, Some (Elastic_j.string_of_aliases { Elastic_t.actions; })
   in
   Lwt_main.run @@
-  match%lwt http_request_lwt ~verbose ?body action host [ Some "_aliases"; ] [] with
-  | exception exn -> log #error ~exn "alias"; Lwt.fail exn
-  | `Error error -> log #error "alias error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  match%lwt request ~verbose ?body action host [ Some "_aliases"; ] [] id with
+  | Error error -> fail_lwt "alias error:\n%s" error
+  | Ok result -> Lwt_io.printl result
 
 type flush_args = {
   host : string;
@@ -393,10 +408,9 @@ let flush { verbose; _ } {
   ] in
   let path = [ csv indices; Some "_flush"; bool' "synced" synced; ] in
   Lwt_main.run @@
-  match%lwt http_request_lwt ~verbose `POST host path args with
-  | exception exn -> log #error ~exn "flush"; Lwt.fail exn
-  | `Error error -> log #error "flush error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  match%lwt request ~verbose `POST host path args id with
+  | Error error -> fail_lwt "flush error:\n%s" error
+  | Ok result -> Lwt_io.printl result
 
 type get_args = {
   host : string;
@@ -484,22 +498,15 @@ let get ({ verbose; es_version; _ } as common_args) {
     "routing", csv routing;
     "preference", csv ~sep:"|" preference;
   ] in
-  match%lwt http_request_lwt' ~verbose ?body `GET host path args with
-  | exception exn -> log #error ~exn "get"; Lwt.fail exn
-  | `Error code ->
-    let error = sprintf "(%d) %s" (Curl.errno code) (Curl.strerror code) in
-    log #error "get error : %s" error;
-    Lwt.fail_with error
-  | `Ok (code, result) ->
-  let is_error_response result = Elastic_j.((response''_of_string result).error) <> None in
-  let is_severe_error code result = code / 100 <> 2 && (code <> 404 || is_error_response result) in
-  match is_severe_error code result with
-  | exception exn -> log #error ~exn "get"; Lwt.fail exn
-  | is_error when is_error || format = [] -> Lwt_io.printl result
+  let request unformat = request ~verbose ?body `GET host path args unformat in
+  match format with
+  | [] ->
+    let%lwt (Ok response | Error response) = request id in
+    Lwt_io.printl response
   | _ ->
-  match unformat result with
-  | exception exn -> log #error ~exn "get %s" result; Lwt.fail exn
-  | docs ->
+  match%lwt request unformat with
+  | Error response -> Lwt_io.printl response
+  | Ok docs ->
   Lwt_list.iter_s begin fun hit ->
     List.map (List.map map_of_hit_format) format |>
     List.concat |>
@@ -538,10 +545,9 @@ let health { verbose; _ } {
         "active_shards_percent";
       ] in
       let args = [ "h", Some (String.concat "," columns); ] in
-      match%lwt http_request_lwt ~verbose `GET host [ Some "_cat"; Some "health"; ] args with
-      | exception exn -> log #error ~exn "health"; Lwt.return (i, sprintf "%s failure %s" host (Printexc.to_string exn))
-      | `Error error -> log #error "health error : %s" error; Lwt.return (i, sprintf "%s error %s\n" host error)
-      | `Ok result -> Lwt.return (i, sprintf "%s %s" host result)
+      match%lwt request ~verbose `GET host [ Some "_cat"; Some "health"; ] args id with
+      | Error error -> Lwt.return (i, sprintf "%s error %s\n" host error)
+      | Ok result -> Lwt.return (i, sprintf "%s %s" host result)
     end hosts
   in
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
@@ -561,12 +567,10 @@ let nodes { verbose; _ } {
   let check_nodes = match check_nodes with [] -> Option.default [] nodes | nodes -> nodes in
   let check_nodes = SS.of_list (List.concat (List.map Common.expand_node check_nodes)) in
   Lwt_main.run @@
-  match%lwt http_request_lwt ~verbose `GET host [ Some "_nodes"; ] [] with
-  | exception exn -> log #error ~exn "nodes"; Lwt.fail exn
-  | `Error error -> log #error "nodes error : %s" error; Lwt.fail_with error
-  | `Ok result ->
-  J.from_string result |>
-  J.Util.member "nodes" |>
+  match%lwt request ~verbose `GET host [ Some "_nodes"; ] [] J.from_string with
+  | Error error -> fail_lwt "nodes error:\n%s" error
+  | Ok result ->
+  J.Util.member "nodes" result |>
   J.Util.to_assoc |>
   List.fold_left begin fun (missing, present) (_node_id, node) ->
     let name = J.Util.member "name" node |> J.Util.to_string in
@@ -626,10 +630,9 @@ let put ({ verbose; es_version; _ } as common_args) {
   let args = [ "routing", routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
   let action = if doc_id <> None then `PUT else `POST in
-  match%lwt http_request_lwt ~verbose ~body action host [ Some index; Some doc_type; doc_id; ] args with
-  | exception exn -> log #error ~exn "put"; Lwt.fail exn
-  | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  match%lwt request ~verbose ~body action host [ Some index; Some doc_type; doc_id; ] args id with
+  | Error error -> fail_lwt "put error:\n%s" error
+  | Ok result -> Lwt_io.printl result
 
 type recovery_args = {
   host : string;
@@ -658,13 +661,9 @@ let recovery { verbose; _ } {
   let filter_exclude = List.map (fun (k, v) -> map_of_index_shard_format k, v) filter_exclude in
   let { Common.host; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  match%lwt http_request_lwt ~verbose `GET host [ csv indices; Some "_recovery"; ] [] with
-  | exception exn -> log #error ~exn "recovery"; Lwt.fail exn
-  | `Error error -> log #error "recovery error : %s" error; Lwt.fail_with error
-  | `Ok result ->
-  match Elastic_j.indices_shards_of_string result with
-  | exception exn -> log #error ~exn "recovery %s" result; Lwt.fail exn
-  | indices ->
+  match%lwt request ~verbose `GET host [ csv indices; Some "_recovery"; ] [] Elastic_j.indices_shards_of_string with
+  | Error error -> fail_lwt "recovery error:\n%s" error
+  | Ok indices ->
   let indices =
     match filter_include, filter_exclude with
     | [], [] -> indices
@@ -699,10 +698,9 @@ let refresh { verbose; _ } {
   let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  match%lwt http_request_lwt ~verbose `POST host [ csv indices; Some "_refresh"; ] [] with
-  | exception exn -> log #error ~exn "refresh"; Lwt.fail exn
-  | `Error error -> log #error "refresh error : %s" error; Lwt.fail_with error
-  | `Ok result -> Lwt_io.printl result
+  match%lwt request ~verbose `POST host [ csv indices; Some "_refresh"; ] [] id with
+  | Error error -> fail_lwt "refresh error:\n%s" error
+  | Ok result -> Lwt_io.printl result
 
 type search_args = {
   host : string;
@@ -805,19 +803,18 @@ let search ({ verbose; es_version; _ } as common_args) {
   in
   let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
   let rec search () =
-    match%lwt http_request_lwt ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_search"; ] args with
-    | exception exn -> log #error ~exn "search"; Lwt.fail exn
-    | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
-    | `Ok result ->
+    match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_search"; ] args id with
+    | Error error -> fail_lwt "search error:\n%s" error
+    | Ok result ->
     match show_count, format, scroll, retry with
     | false, [], None, false -> Lwt_io.printl result
     | show_count, format, scroll, retry ->
     let scroll_path = [ Some "_search"; Some "scroll"; ] in
     let clear_scroll' scroll_id =
       let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; } in
-      match%lwt http_request_lwt ~verbose ~body:clear_scroll `DELETE host scroll_path [] with
-      | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
-      | `Ok _ok -> Lwt.return_unit
+      match%lwt request ~verbose ~body:clear_scroll `DELETE host scroll_path [] id with
+      | Error error -> fail_lwt "clear scroll error:\n%s" error
+      | Ok _ok -> Lwt.return_unit
     in
     let clear_scroll scroll_id = Option.map_default clear_scroll' Lwt.return_unit scroll_id in
     let rec loop result =
@@ -873,12 +870,12 @@ let search ({ verbose; es_version; _ } as common_args) {
       | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
       | _, Some scroll, Some scroll_id ->
       let scroll = Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; } in
-      match%lwt http_request_lwt ~verbose ~body:scroll `POST host scroll_path [] with
-      | `Error error ->
-        log #error "scroll error : %s" error;
+      match%lwt request ~verbose ~body:scroll `POST host scroll_path [] id with
+      | Error error ->
+        let%lwt () = Lwt_io.eprintlf "scroll error:\n%s" error in
         let%lwt () = clear_scroll' scroll_id in
-        Lwt.fail_with error
-      | `Ok result -> loop result
+        Lwt.fail ErrorExit
+      | Ok result -> loop result
     in
     loop result
   in
@@ -1354,4 +1351,9 @@ let tools = [
   search_tool;
 ]
 
-let () = Term.(exit (eval_choice default_tool tools))
+let () =
+  try
+    Term.(exit (eval_choice ~catch:false default_tool tools))
+  with
+  | ErrorExit -> exit 1
+  | exn -> log #error ~exn "uncaught exception"; exit 125
