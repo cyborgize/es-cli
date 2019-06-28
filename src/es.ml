@@ -9,8 +9,6 @@ let log = Log.from "es"
 
 let json_content_type = "application/json"
 
-let cmd = ref []
-
 let http_timeout = ref (Time.seconds 60)
 
 type common_args = {
@@ -21,7 +19,6 @@ type common_args = {
 let args =
   ExtArg.[
     "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
-    "--", Rest (tuck cmd), " signal end of options";
   ]
 
 let json_body_opt = function
@@ -1030,10 +1027,6 @@ let get_tool =
       format;
     }
   in
-  let index =
-    let doc = "index to get" in
-    Arg.(required & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
-  in
   let open Term in
   const get $
     common_args $
@@ -1048,7 +1041,7 @@ let get_tool =
     routing $
     preference $
     format,
-  let doc = "get index" in
+  let doc = "get document(s)" in
   let exits = default_exits in
   let man = [] in
   info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
@@ -1129,7 +1122,7 @@ let put_tool =
     Arg.value doc_id $
     routing $
     body,
-  let doc = "put index" in
+  let doc = "put document" in
   let exits = default_exits in
   let man = [] in
   info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
