@@ -31,14 +31,14 @@ type id_hit = {
 
 type unit_hit = {
   inherit id_hit;
-  ~routing <json name="_routing"> : string nullable;
-  ~found: bool;
-  ~score <json name="_score"> : float;
+  ?routing <json name="_routing"> : string nullable;
+  ?found: bool option;
+  ?score <json name="_score"> : float option;
   ?version <json name="_version"> : int option;
   ?fields : (string * json list) list <json repr="object"> option;
   ?shard <json name="_shard"> : string option;
   ?node <json name="_node"> : string option;
-  ~sort : json list;
+  ?sort : json list option;
 }
 
 type 'source option_hit = {
