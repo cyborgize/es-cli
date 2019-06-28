@@ -45,7 +45,8 @@ type es_version_config = {
   source_excludes_arg : string;
   read_total : Elastic_t.total json_reader;
   write_total : Elastic_t.total json_writer;
-  default_doc_type : string option;
+  default_get_doc_type : string;
+  default_put_doc_type : string option;
 }
 
 let es6_config = {
@@ -53,7 +54,8 @@ let es6_config = {
   source_excludes_arg = "_source_exclude";
   read_total = Elastic_j.read_es6_total;
   write_total = Elastic_j.write_es6_total;
-  default_doc_type = None;
+  default_get_doc_type = "_all";
+  default_put_doc_type = None;
 }
 
 let es7_config = {
@@ -61,7 +63,8 @@ let es7_config = {
   source_excludes_arg = "_source_excludes";
   read_total = Elastic_j.read_total;
   write_total = Elastic_j.write_total;
-  default_doc_type = Some "_doc";
+  default_get_doc_type = "_doc";
+  default_put_doc_type = Some "_doc";
 }
 
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
@@ -415,16 +418,13 @@ let get ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt { source_includes_arg; source_excludes_arg; default_doc_type; _ } =
+  let%lwt ({ source_includes_arg; source_excludes_arg; default_get_doc_type; _ }) =
     get_es_version_config common_args host es_version config version
   in
   let%lwt (doc_type, doc_id) =
-    match coalesce [ doc_type; default_doc_type; ] with
-    | Some doc_type -> Lwt.return (doc_type, doc_id)
-    | None ->
     match Stre.splitc doc_id '/' with
     | doc_type, doc_id -> Lwt.return (doc_type, doc_id)
-    | exception Not_found -> Exn_lwt.fail "DOC_TYPE is not provided"
+    | exception Not_found -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
   in
   let args = [
     "timeout", timeout;
@@ -554,11 +554,11 @@ let put ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt { default_doc_type; _ } =
+  let%lwt { default_put_doc_type; _ } =
     get_es_version_config common_args host es_version config version
   in
   let%lwt (doc_type, doc_id) =
-    match coalesce [ doc_type; default_doc_type; ] with
+    match coalesce [ doc_type; default_put_doc_type; ] with
     | Some doc_type -> Lwt.return (doc_type, doc_id)
     | None ->
     let fail () = Exn_lwt.fail "DOC_TYPE is not provided" in
