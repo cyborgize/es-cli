@@ -24,6 +24,10 @@ let args =
     "--", Rest (tuck cmd), " signal end of options";
   ]
 
+let json_body_opt = function
+  | Some body -> Some (`Raw (json_content_type, body))
+  | None -> None
+
 let make_url host path args =
   let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
   let path = String.concat "/" ("" :: List.filter_map id path) in
@@ -31,10 +35,10 @@ let make_url host path args =
   String.concat "" [ host; path; ]
 
 let http_request_lwt' ?verbose ?body action host path args =
-  Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
+  Web.http_request_lwt' ?verbose ~timeout:(Time.to_sec !http_timeout) ?body:(json_body_opt body) action (make_url host path args)
 
 let http_request_lwt ?verbose ?body action host path args =
-  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body action (make_url host path args)
+  Web.http_request_lwt ?verbose ~timeout:(Time.to_sec !http_timeout) ?body:(json_body_opt body) action (make_url host path args)
 
 type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
 
@@ -352,7 +356,7 @@ let alias { verbose; _ } {
     | [] -> `GET, None
     | actions ->
     let actions = List.map (fun { action; index; alias; } -> [ action, { Elastic_t.index; alias; }; ]) actions in
-    `POST, Some (`Raw (json_content_type, Elastic_j.string_of_aliases { Elastic_t.actions; }))
+    `POST, Some (Elastic_j.string_of_aliases { Elastic_t.actions; })
   in
   Lwt_main.run @@
   match%lwt http_request_lwt ~verbose ?body action host [ Some "_aliases"; ] [] with
@@ -574,7 +578,7 @@ let put ({ verbose; es_version; _ } as common_args) {
   let args = [ "routing", routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
   let action = if doc_id <> None then `PUT else `POST in
-  match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, body)) action host [ Some index; Some doc_type; doc_id; ] args with
+  match%lwt http_request_lwt ~verbose ~body action host [ Some index; Some doc_type; doc_id; ] args with
   | exception exn -> log #error ~exn "put"; Lwt.fail exn
   | `Error error -> log #error "put error : %s" error; Lwt.fail_with error
   | `Ok result -> Lwt_io.printl result
@@ -751,10 +755,9 @@ let search ({ verbose; es_version; _ } as common_args) {
     let body = slice :: List.filter (function "slice", _ -> false | _ -> true) body in
     Some (Util_j.string_of_assoc body)
   in
-  let body = match body_query with Some query -> Some (`Raw (json_content_type, query)) | None -> None in
   let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
   let rec search () =
-    match%lwt http_request_lwt ~verbose ?body `POST host [ Some index; doc_type; Some "_search"; ] args with
+    match%lwt http_request_lwt ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_search"; ] args with
     | exception exn -> log #error ~exn "search"; Lwt.fail exn
     | `Error error -> log #error "search error : %s" error; Lwt.fail_with error
     | `Ok result ->
@@ -764,7 +767,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     let scroll_path = [ Some "_search"; Some "scroll"; ] in
     let clear_scroll' scroll_id =
       let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; } in
-      match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, clear_scroll)) `DELETE host scroll_path [] with
+      match%lwt http_request_lwt ~verbose ~body:clear_scroll `DELETE host scroll_path [] with
       | `Error error -> log #error "clear scroll error : %s" error; Lwt.fail_with error
       | `Ok _ok -> Lwt.return_unit
     in
@@ -822,7 +825,7 @@ let search ({ verbose; es_version; _ } as common_args) {
       | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
       | _, Some scroll, Some scroll_id ->
       let scroll = Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; } in
-      match%lwt http_request_lwt ~verbose ~body:(`Raw (json_content_type, scroll)) `POST host scroll_path [] with
+      match%lwt http_request_lwt ~verbose ~body:scroll `POST host scroll_path [] with
       | `Error error ->
         log #error "scroll error : %s" error;
         let%lwt () = clear_scroll' scroll_id in
