@@ -9,10 +9,14 @@ type main_version = {
   number : string;
 }
 
-type multiget_doc = {
+type doc_id = {
   ?index <json name="_index"> : string option;
   ?doc_type <json name="_type"> : string option;
   id <json name="_id"> : string;
+}
+
+type multiget_doc = {
+  inherit doc_id;
   ?routing <json name="_routing"> : string option;
   ?source <json name="_source"> : json option;
   ?stored_fields : string list option;
@@ -197,4 +201,16 @@ type shard_translog = {
 type shard_verify_index = {
   check_index_time_in_millis : int;
   total_time_in_millis : int;
+}
+
+type bulk = {
+  ?index : bulk_action option;
+  ?create : bulk_action option;
+  ?update : bulk_action option;
+  ?delete : bulk_action option;
+}
+
+type bulk_action = {
+  inherit doc_id;
+  ?routing : string option;
 }

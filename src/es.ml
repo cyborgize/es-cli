@@ -7,8 +7,6 @@ module SS = Set.Make(String)
 
 let log = Log.from "es"
 
-let json_content_type = "application/json"
-
 let http_timeout = ref (Time.seconds 60)
 
 type common_args = {
@@ -21,8 +19,17 @@ let args =
     "-T", String (fun t -> http_timeout := Time.of_compact_duration t), " set HTTP request timeout (format: 45s, 2m, or 1m30s)";
   ]
 
+let json_content_type = "application/json"
+
+let ndjson_content_type = "application/x-ndjson"
+
+type content_type =
+  | JSON of string
+  | NDJSON of string
+
 let json_body_opt = function
-  | Some body -> Some (`Raw (json_content_type, body))
+  | Some JSON body -> Some (`Raw (json_content_type, body))
+  | Some NDJSON body -> Some (`Raw (ndjson_content_type, body))
   | None -> None
 
 let make_url host path args =
@@ -373,12 +380,75 @@ let alias { verbose; _ } {
     | [] -> `GET, None
     | actions ->
     let actions = List.map (fun { action; index; alias; } -> [ action, { Elastic_t.index; alias; }; ]) actions in
-    `POST, Some (Elastic_j.string_of_aliases { Elastic_t.actions; })
+    `POST, Some (JSON (Elastic_j.string_of_aliases { Elastic_t.actions; }))
   in
   Lwt_main.run @@
   match%lwt request ~verbose ?body action host [ Some "_aliases"; ] [] id with
   | Error error -> fail_lwt "alias error:\n%s" error
   | Ok result -> Lwt_io.printl result
+
+type delete_args = {
+  host : string;
+  index : string;
+  doc_type : string option;
+  doc_ids : string * string list;
+  timeout : string option;
+  routing : string option;
+}
+
+let delete ({ verbose; es_version; _ } as common_args) {
+    host;
+    index;
+    doc_type;
+    doc_ids;
+    timeout;
+    routing;
+  } =
+  let config = Common.load_config () in
+  let { Common.host; version; _ } = Common.get_cluster config host in
+  Lwt_main.run @@
+  let%lwt ({ default_get_doc_type; _ }) =
+    get_es_version_config common_args host es_version config version
+  in
+  let%lwt (action, body, path) =
+    match doc_ids with
+    | doc_id, [] ->
+      let%lwt (doc_type, doc_id) =
+        match Stre.nsplitc doc_id '/' with
+        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (doc_type, doc_id)
+        | _ -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
+      in
+      Lwt.return (`DELETE, None, [ Some index; Some doc_type; Some doc_id; ])
+    | doc_id, other_doc_ids ->
+    let map doc_id =
+      let (index, doc_type, doc_id) =
+        match Stre.nsplitc doc_id '/' with
+        | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
+        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> None, Some doc_type, doc_id
+        | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Some index, Some doc_type, doc_id
+        | _ -> None, None, doc_id
+      in
+      Option.default default_get_doc_type doc_type,
+      { Elastic_t.index; doc_type; id = doc_id; routing; }
+    in
+    let body =
+      List.fold_left begin fun acc doc_id ->
+        let (_doc_type, delete) = map doc_id in
+        let bulk = { Elastic_t.index = None; create = None; update = None; delete = Some delete; } in
+        "\n" :: Elastic_j.string_of_bulk bulk :: acc
+      end [] (doc_id :: other_doc_ids) |>
+      List.rev |>
+      String.concat ""
+    in
+    Lwt.return (`POST, Some (NDJSON body), [ Some index; Some "_bulk"; ])
+  in
+  let args = [
+    "timeout", timeout;
+    "routing", routing;
+  ] in
+  match%lwt request ~verbose ?body action host path args id with
+  | Error response -> Lwt_io.eprintl response
+  | Ok response -> Lwt_io.printl response
 
 type flush_args = {
   host : string;
@@ -486,7 +556,7 @@ let get ({ verbose; es_version; _ } as common_args) {
       let { Elastic_t.docs; } = Elastic_j.docs_of_string (Elastic_j.read_option_hit J.read_json) x in
       docs
     in
-    Lwt.return (Some (Elastic_j.string_of_multiget { docs; ids; }), path, unformat)
+    Lwt.return (Some (JSON (Elastic_j.string_of_multiget { docs; ids; })), path, unformat)
   in
   let args = [
     "timeout", timeout;
@@ -628,7 +698,7 @@ let put ({ verbose; es_version; _ } as common_args) {
   let args = [ "routing", routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
   let action = if doc_id <> None then `PUT else `POST in
-  match%lwt request ~verbose ~body action host [ Some index; Some doc_type; doc_id; ] args id with
+  match%lwt request ~verbose ~body:(JSON body) action host [ Some index; Some doc_type; doc_id; ] args id with
   | Error error -> fail_lwt "put error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
@@ -799,6 +869,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     let body = slice :: List.filter (function "slice", _ -> false | _ -> true) body in
     Some (Util_j.string_of_assoc body)
   in
+  let body_query = match body_query with Some query -> Some (JSON query) | None -> None in
   let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
   let rec search () =
     match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_search"; ] args id with
@@ -809,7 +880,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     | show_count, format, scroll, retry ->
     let scroll_path = [ Some "_search"; Some "scroll"; ] in
     let clear_scroll' scroll_id =
-      let clear_scroll = Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; } in
+      let clear_scroll = JSON (Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; }) in
       match%lwt request ~verbose ~body:clear_scroll `DELETE host scroll_path [] id with
       | Error error -> fail_lwt "clear scroll error:\n%s" error
       | Ok _ok -> Lwt.return_unit
@@ -867,7 +938,7 @@ let search ({ verbose; es_version; _ } as common_args) {
       match hits, scroll, scroll_id with
       | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
       | _, Some scroll, Some scroll_id ->
-      let scroll = Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; } in
+      let scroll = JSON (Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; }) in
       match%lwt request ~verbose ~body:scroll `POST host scroll_path [] id with
       | Error error ->
         let%lwt () = Lwt_io.eprintlf "scroll error:\n%s" error in
@@ -962,6 +1033,41 @@ let alias_tool =
   let exits = default_exits in
   let man = [] in
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
+let delete_tool =
+  let delete
+      common_args
+      host
+      index
+      doc_type
+      doc_id
+      more_doc_ids
+      timeout
+      routing
+    =
+    delete common_args {
+      host;
+      index;
+      doc_type;
+      doc_ids = doc_id, more_doc_ids;
+      timeout;
+      routing;
+    }
+  in
+  let open Term in
+  const delete $
+    common_args $
+    host $
+    index $
+    doc_type $
+    Arg.required doc_id $
+    more_doc_ids $
+    timeout $
+    routing,
+  let doc = "delete document(s)" in
+  let exits = default_exits in
+  let man = [] in
+  info "delete" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let flush_tool =
   let flush
@@ -1335,6 +1441,7 @@ let search_tool =
 
 let tools = [
   alias_tool;
+  delete_tool;
   flush_tool;
   get_tool;
   health_tool;
