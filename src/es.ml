@@ -313,6 +313,16 @@ let compare_fmt = function
   | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
   | `None -> (fun _ -> false)
 
+let map_doc_id doc_id =
+  let (index, doc_type, doc_id) =
+    match Stre.nsplitc doc_id '/' with
+    | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
+    | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> None, Some doc_type, doc_id
+    | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Some index, Some doc_type, doc_id
+    | _ -> None, None, doc_id
+  in
+  { Elastic_t.index; doc_type; id = doc_id; routing = None; }
+
 module Common_args = struct
 
   open Cmdliner
@@ -420,20 +430,9 @@ let delete ({ verbose; es_version; _ } as common_args) {
       in
       Lwt.return (`DELETE, None, [ Some index; Some doc_type; Some doc_id; ])
     | doc_id, other_doc_ids ->
-    let map doc_id =
-      let (index, doc_type, doc_id) =
-        match Stre.nsplitc doc_id '/' with
-        | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
-        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> None, Some doc_type, doc_id
-        | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Some index, Some doc_type, doc_id
-        | _ -> None, None, doc_id
-      in
-      Option.default default_get_doc_type doc_type,
-      { Elastic_t.index; doc_type; id = doc_id; routing; }
-    in
     let body =
       List.fold_left begin fun acc doc_id ->
-        let (_doc_type, delete) = map doc_id in
+        let delete = map_doc_id doc_id in
         let bulk = { Elastic_t.index = None; create = None; update = None; delete = Some delete; } in
         "\n" :: Elastic_j.string_of_bulk bulk :: acc
       end [] (doc_id :: other_doc_ids) |>
@@ -522,15 +521,9 @@ let get ({ verbose; es_version; _ } as common_args) {
       Lwt.return (None, [ Some index; Some doc_type; Some doc_id; ], unformat)
     | doc_id, other_doc_ids ->
     let map doc_id =
-      let (index, doc_type, doc_id) =
-        match Stre.nsplitc doc_id '/' with
-        | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
-        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> None, Some doc_type, doc_id
-        | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Some index, Some doc_type, doc_id
-        | _ -> None, None, doc_id
-      in
+      let { Elastic_t.index; doc_type; id; routing; } = map_doc_id doc_id in
       Option.default default_get_doc_type doc_type,
-      { Elastic_t.index; doc_type; id = doc_id; routing = None; source = None; stored_fields = None; }
+      { Elastic_t.index; doc_type; id; routing; source = None; stored_fields = None; }
     in
     let (docs, common_doc_type) =
       let (first_doc_type, first_doc) = map doc_id in
