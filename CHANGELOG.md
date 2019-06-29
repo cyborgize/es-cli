@@ -1,6 +1,11 @@
 # Change Log
 
-## 1.0.0
+## 1.1
+- `delete` tool
+- get and put: accept either index and doc_id, or index/[doc_type/]doc_id
+- get and delete: accept multiple ids
+
+## 1.0
 - add support for ES 7.x
 - auto detect ES version
 - search: allow to read body query from @file
