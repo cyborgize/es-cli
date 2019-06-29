@@ -313,7 +313,54 @@ let compare_fmt = function
   | `Duration x -> Factor.Float.equal x $ float_of_string (* FIXME parse time? *)
   | `None -> (fun _ -> false)
 
-let map_doc_id doc_id =
+let split doc_id = Stre.nsplitc doc_id '/'
+
+let join doc_id = String.concat "/" doc_id
+
+let is_pure_id' doc_id =
+  match doc_id with
+  | [ _doc_id; ] | [ ""; _doc_id; ] -> true
+  | _ -> false
+
+let is_pure_id doc_id = is_pure_id' (split doc_id)
+
+let map_index_doc_id' doc_type doc_id =
+  match doc_id with
+  | [ doc_id; ] | [ ""; doc_id; ] -> Exn_lwt.fail "document id missing index name : /%s" doc_id
+  | [ index; doc_id; ] | [ ""; index; doc_id; ] -> Lwt.return (index, doc_type, doc_id)
+  | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Lwt.return (index, Some doc_type, doc_id)
+  | _ -> Exn_lwt.fail "invalid document id : %s" (join doc_id)
+
+let map_index_doc_id doc_type doc_id = map_index_doc_id' doc_type (split doc_id)
+
+let map_doc_id' index doc_type doc_id =
+  match doc_id with
+  | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, doc_type, doc_id)
+  | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (index, Some doc_type, doc_id)
+  | _ -> Exn_lwt.fail "invalid document id : /%s/%s" index (join doc_id)
+
+let map_doc_id index doc_type doc_id = map_doc_id' index doc_type (split doc_id)
+
+let map_doc_id_opt' index doc_type doc_id =
+  let%lwt (index, doc_type, doc_id) = map_doc_id' index doc_type doc_id in
+  Lwt.return (index, doc_type, Some doc_id)
+
+let map_doc_id_opt index doc_type doc_id = map_doc_id_opt' index doc_type (split doc_id)
+
+let map_typed_doc_id' index doc_type doc_id =
+  match doc_id with
+  | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, Some doc_type, doc_id)
+  | _ -> Exn_lwt.fail "invalid document id : /%s/%s/%s" index doc_type (join doc_id)
+
+let map_typed_doc_id index doc_type doc_id = map_typed_doc_id' index doc_type (split doc_id)
+
+let map_typed_doc_id_opt' index doc_type doc_id =
+  let%lwt (index, doc_type, doc_id) = map_typed_doc_id' index doc_type doc_id in
+  Lwt.return (index, doc_type, Some doc_id)
+
+let map_typed_doc_id_opt index doc_type doc_id = map_typed_doc_id_opt' index doc_type (split doc_id)
+
+let map_bulk_doc_id doc_id =
   let (index, doc_type, doc_id) =
     match Stre.nsplitc doc_id '/' with
     | [ doc_id; ] | [ ""; doc_id; ] -> None, None, doc_id
@@ -322,6 +369,74 @@ let map_doc_id doc_id =
     | _ -> None, None, doc_id
   in
   { Elastic_t.index; doc_type; id = doc_id; routing = None; }
+
+let map_index_mode index =
+  match Stre.nsplitc index '/' with
+  | [ index; ] | [ ""; index; ] -> `Index index
+  | [ index; doc_type_or_id; ] | [ ""; index; doc_type_or_id; ] -> `IndexOrID (index, doc_type_or_id)
+  | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> `ID (index, doc_type, doc_id)
+  | _ -> Exn.fail "invalid index name or document id : %s" index
+
+let map_ids ~default_get_doc_type index doc_type doc_ids =
+  let multiple (first_index, first_doc_type, _doc_id as first_doc) other_doc_ids =
+    let first_doc_type = Option.default default_get_doc_type first_doc_type in
+    let merge_equal x y = match x with Some x' when String.equal x' y -> x | _ -> None in
+    let (docs, common_index, common_doc_type) =
+      List.fold_left begin fun (docs, common_index, common_doc_type) (index, doc_type, _doc_id as doc) ->
+        let common_index = merge_equal common_index index in
+        let common_doc_type = merge_equal common_doc_type (Option.default default_get_doc_type doc_type) in
+        doc :: docs, common_index, common_doc_type
+      end ([ first_doc; ], Some first_index, Some first_doc_type) other_doc_ids
+    in
+    let (docs, index, doc_type) =
+      match common_index, common_doc_type with
+      | Some _, Some _ ->
+        let docs = List.map (fun (_index, _doc_type, doc_id) -> None, None, doc_id) docs in
+        docs, common_index, common_doc_type
+      | Some _, None ->
+        let docs = List.map (fun (_index, doc_type, doc_id) -> None, doc_type, doc_id) docs in
+        docs, common_index, None
+      | None, _ ->
+        let docs = List.map (fun (index, doc_type, doc_id) -> Some index, doc_type, doc_id) docs in
+        docs, None, None
+    in
+    Lwt.return (`Multi (docs, index, doc_type, [ index; doc_type; Some "_mget"; ]))
+  in
+  let%lwt mode = Lwt.wrap1 map_index_mode index in
+  let doc_ids = List.map split doc_ids in
+  match mode, doc_ids with
+  | `Index _, [] ->
+    let%lwt () = Lwt_io.eprintl "only INDEX is provided and no DOC_ID" in
+    Lwt.return `None
+  | `Index index, [ doc_id; ] ->
+    let%lwt (index, doc_type, doc_id) = map_doc_id' index doc_type doc_id in
+    let doc_type = Option.default default_get_doc_type doc_type in
+    Lwt.return (`Single [ Some index; Some doc_type; Some doc_id; ])
+  | `Index index, doc_id :: doc_ids ->
+    let%lwt doc_id = map_doc_id' index doc_type doc_id in
+    let%lwt doc_ids = Lwt_list.map_s (map_doc_id' index doc_type) doc_ids in
+    multiple doc_id doc_ids
+  | `IndexOrID (index, doc_id), [] ->
+    let doc_type = Option.default default_get_doc_type doc_type in
+    Lwt.return (`Single [ Some index; Some doc_type; Some doc_id; ])
+  | `IndexOrID (index, doc_type), doc_id :: doc_ids when List.for_all is_pure_id' (doc_id :: doc_ids) ->
+    begin match doc_ids with
+    | [] ->
+      let%lwt (index, doc_type, doc_id) = map_typed_doc_id' index doc_type doc_id in
+      Lwt.return (`Single [ Some index; doc_type; Some doc_id; ])
+    | _ ->
+      let%lwt doc_id = map_typed_doc_id' index doc_type doc_id in
+      let%lwt doc_ids = Lwt_list.map_s (map_typed_doc_id' index doc_type) doc_ids in
+      multiple doc_id doc_ids
+    end
+  | `IndexOrID (index, doc_id), doc_ids ->
+    let%lwt doc_ids = Lwt_list.map_s (map_index_doc_id' doc_type) doc_ids in
+    multiple (index, doc_type, doc_id) doc_ids
+  | `ID (index, doc_type, doc_id), [] ->
+    Lwt.return (`Single [ Some index; Some doc_type; Some doc_id; ])
+  | `ID (index, doc_type', doc_id), doc_ids ->
+    let%lwt doc_ids = Lwt_list.map_s (map_index_doc_id' doc_type) doc_ids in
+    multiple (index, Some doc_type', doc_id) doc_ids
 
 module Common_args = struct
 
@@ -335,9 +450,9 @@ module Common_args = struct
 
   let doc_id = Arg.(pos 2 (some string) None & info [] ~docv:"DOC_ID" ~doc:"document id")
 
-  let more_doc_ids =
-    let doc = "more document ids for multiget query" in
-    Arg.(value & pos_right 2 string [] & info [] ~docv:"[DOC_ID2[ DOC_ID3...]]" ~doc)
+  let doc_ids =
+    let doc = "document ids" in
+    Arg.(value & pos_right 1 string [] & info [] ~docv:"DOC_ID1[ DOC_ID2[ DOC_ID3...]]" ~doc)
 
   let timeout = Arg.(value & opt (some string) None & info [ "t"; "timeout"; ] ~doc:"timeout")
 
@@ -401,7 +516,7 @@ type delete_args = {
   host : string;
   index : string;
   doc_type : string option;
-  doc_ids : string * string list;
+  doc_ids : string list;
   timeout : string option;
   routing : string option;
 }
@@ -422,17 +537,18 @@ let delete ({ verbose; es_version; _ } as common_args) {
   in
   let%lwt (action, body, path) =
     match doc_ids with
-    | doc_id, [] ->
+    | [] -> Exn_lwt.fail "temporary assert" (* FIXME *)
+    | doc_id :: [] ->
       let%lwt (doc_type, doc_id) =
         match Stre.nsplitc doc_id '/' with
         | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (doc_type, doc_id)
         | _ -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
       in
       Lwt.return (`DELETE, None, [ Some index; Some doc_type; Some doc_id; ])
-    | doc_id, other_doc_ids ->
+    | doc_id :: other_doc_ids ->
     let body =
       List.fold_left begin fun acc doc_id ->
-        let delete = map_doc_id doc_id in
+        let delete = map_bulk_doc_id doc_id in
         let bulk = { Elastic_t.index = None; create = None; update = None; delete = Some delete; } in
         "\n" :: Elastic_j.string_of_bulk bulk :: acc
       end [] (doc_id :: other_doc_ids) |>
@@ -482,7 +598,7 @@ type get_args = {
   host : string;
   index : string;
   doc_type : string option;
-  doc_ids : string * string list;
+  doc_ids : string list;
   timeout : string option;
   source_includes : string list;
   source_excludes : string list;
@@ -509,47 +625,33 @@ let get ({ verbose; es_version; _ } as common_args) {
   let%lwt ({ source_includes_arg; source_excludes_arg; default_get_doc_type; _ }) =
     get_es_version_config common_args host es_version config version
   in
-  let%lwt (body, path, unformat) =
-    match doc_ids with
-    | doc_id, [] ->
-      let%lwt (doc_type, doc_id) =
-        match Stre.nsplitc doc_id '/' with
-        | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (doc_type, doc_id)
-        | _ -> Lwt.return (Option.default default_get_doc_type doc_type, doc_id)
-      in
+  match%lwt map_ids ~default_get_doc_type index doc_type doc_ids with
+  | `None -> Lwt.return_unit
+  | `Single _ | `Multi _ as mode ->
+  let (body, path, unformat) =
+    match mode with
+    | `Single path ->
       let unformat x = [ Elastic_j.option_hit_of_string J.read_json x; ] in
-      Lwt.return (None, [ Some index; Some doc_type; Some doc_id; ], unformat)
-    | doc_id, other_doc_ids ->
-    let map doc_id =
-      let { Elastic_t.index; doc_type; id; routing; } = map_doc_id doc_id in
-      Option.default default_get_doc_type doc_type,
-      { Elastic_t.index; doc_type; id; routing; source = None; stored_fields = None; }
+      None, path, unformat
+    | `Multi (docs, index, doc_type, path) ->
+    let (docs, ids) =
+      match index, doc_type with
+      | Some _, Some _ ->
+        let ids = List.map (fun (_index, _doc_type, doc_id) -> doc_id) docs in
+        [], ids
+      | _ ->
+      let docs =
+        List.map begin fun (index, doc_type, id) ->
+          { Elastic_t.index; doc_type; id; routing = None; source = None; stored_fields = None; }
+        end docs
+      in
+      docs, []
     in
-    let (docs, common_doc_type) =
-      let (first_doc_type, first_doc) = map doc_id in
-      List.fold_left begin fun (docs, common_doc_type) doc_id ->
-        let (doc_type, doc) = map doc_id in
-        let common_doc_type =
-          match common_doc_type with
-          | Some doc_type' when doc_type' = doc_type -> common_doc_type
-          | _ -> None
-        in
-        doc :: docs, common_doc_type
-      end ([ first_doc; ], Some first_doc_type) other_doc_ids
-    in
-    let (docs, ids, doc_type) =
-      match common_doc_type with
-      | None -> docs, [], None
-      | Some doc_type ->
-      let ids = List.map (fun ({ id; _ } : Elastic_t.multiget_doc) -> id) docs in
-      [], ids, Some doc_type
-    in
-    let path = [ Some index; doc_type; Some "_mget"; ] in
     let unformat x =
       let { Elastic_t.docs; } = Elastic_j.docs_of_string (Elastic_j.read_option_hit J.read_json) x in
       docs
     in
-    Lwt.return (Some (JSON (Elastic_j.string_of_multiget { docs; ids; })), path, unformat)
+    Some (JSON (Elastic_j.string_of_multiget { docs; ids; })), path, unformat
   in
   let args = [
     "timeout", timeout;
@@ -676,31 +778,15 @@ let put ({ verbose; es_version; _ } as common_args) {
     get_es_version_config common_args host es_version config version
   in
   let%lwt (index, doc_type, doc_id) =
-    let%lwt mode =
-      match Stre.nsplitc index '/' with
-      | [ index; ] | [ ""; index; ] -> Lwt.return (`Index index)
-      | [ index; doc_type_or_id; ] | [ ""; index; doc_type_or_id; ] -> Lwt.return (`IndexOrID (index, doc_type_or_id))
-      | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Lwt.return (`ID (index, doc_type, doc_id))
-      | _ -> Exn_lwt.fail "invalid index name or document id : %s" index
-    in
-    let map_doc_id index doc_id =
-      match Stre.nsplitc doc_id '/' with
-      | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, doc_type, Some doc_id)
-      | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (index, Some doc_type, Some doc_id)
-      | _ -> Exn_lwt.fail "invalid document id : /%s/%s" index doc_id
-    in
-    let map_typed_doc_id index doc_type doc_id =
-      match Stre.nsplitc doc_id '/' with
-      | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, Some doc_type, Some doc_id)
-      | _ -> Exn_lwt.fail "invalid document id : /%s/%s/%s" index doc_type doc_id
-    in
+    let%lwt mode = Lwt.wrap1 map_index_mode index in
     match mode, doc_id with
     | `Index index, None -> Lwt.return (index, doc_type, None)
-    | `Index index, Some doc_id -> map_doc_id index doc_id
+    | `Index index, Some doc_id -> map_doc_id_opt index doc_type doc_id
     | `IndexOrID (index, doc_id), None -> Lwt.return (index, doc_type, Some doc_id)
-    | `IndexOrID (index, doc_type), Some doc_id -> map_typed_doc_id index doc_type doc_id
+    | `IndexOrID (index, doc_type), Some doc_id -> map_typed_doc_id_opt index doc_type doc_id
     | `ID (index, doc_type, doc_id), None -> Lwt.return (index, Some doc_type, Some doc_id)
-    | `ID (index, doc_type, doc_id1), Some doc_id2 -> Exn_lwt.fail "invalid document id : /%s/%s/%s/%s" index doc_type doc_id1 doc_id2
+    | `ID (index, doc_type, doc_id1), Some doc_id2 ->
+      Exn_lwt.fail "invalid document id : /%s/%s/%s/%s" index doc_type doc_id1 doc_id2
   in
   let%lwt doc_type =
     match coalesce [ doc_type; default_put_doc_type; ] with
@@ -1052,8 +1138,7 @@ let delete_tool =
       host
       index
       doc_type
-      doc_id
-      more_doc_ids
+      doc_ids
       timeout
       routing
     =
@@ -1061,7 +1146,7 @@ let delete_tool =
       host;
       index;
       doc_type;
-      doc_ids = doc_id, more_doc_ids;
+      doc_ids;
       timeout;
       routing;
     }
@@ -1072,8 +1157,7 @@ let delete_tool =
     host $
     index $
     doc_type $
-    Arg.required doc_id $
-    more_doc_ids $
+    doc_ids $
     timeout $
     routing,
   let doc = "delete document(s)" in
@@ -1124,8 +1208,7 @@ let get_tool =
       host
       index
       doc_type
-      doc_id
-      more_doc_ids
+      doc_ids
       timeout
       source_includes
       source_excludes
@@ -1137,7 +1220,7 @@ let get_tool =
       host;
       index;
       doc_type;
-      doc_ids = doc_id, more_doc_ids;
+      doc_ids;
       timeout;
       source_includes;
       source_excludes;
@@ -1152,8 +1235,7 @@ let get_tool =
     host $
     index $
     doc_type $
-    Arg.required doc_id $
-    more_doc_ids $
+    doc_ids $
     timeout $
     source_includes $
     source_excludes $
