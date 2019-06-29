@@ -675,18 +675,37 @@ let put ({ verbose; es_version; _ } as common_args) {
   let%lwt { default_put_doc_type; _ } =
     get_es_version_config common_args host es_version config version
   in
-  let%lwt (doc_type, doc_id) =
+  let%lwt (index, doc_type, doc_id) =
+    let%lwt mode =
+      match Stre.nsplitc index '/' with
+      | [ index; ] | [ ""; index; ] -> Lwt.return (`Index index)
+      | [ index; doc_type_or_id; ] | [ ""; index; doc_type_or_id; ] -> Lwt.return (`IndexOrID (index, doc_type_or_id))
+      | [ index; doc_type; doc_id; ] | [ ""; index; doc_type; doc_id; ] -> Lwt.return (`ID (index, doc_type, doc_id))
+      | _ -> Exn_lwt.fail "invalid index name or document id : %s" index
+    in
+    let map_doc_id index doc_id =
+      match Stre.nsplitc doc_id '/' with
+      | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, doc_type, Some doc_id)
+      | [ doc_type; doc_id; ] | [ ""; doc_type; doc_id; ] -> Lwt.return (index, Some doc_type, Some doc_id)
+      | _ -> Exn_lwt.fail "invalid document id : /%s/%s" index doc_id
+    in
+    let map_typed_doc_id index doc_type doc_id =
+      match Stre.nsplitc doc_id '/' with
+      | [ doc_id; ] | [ ""; doc_id; ] -> Lwt.return (index, Some doc_type, Some doc_id)
+      | _ -> Exn_lwt.fail "invalid document id : /%s/%s/%s" index doc_type doc_id
+    in
+    match mode, doc_id with
+    | `Index index, None -> Lwt.return (index, doc_type, None)
+    | `Index index, Some doc_id -> map_doc_id index doc_id
+    | `IndexOrID (index, doc_id), None -> Lwt.return (index, doc_type, Some doc_id)
+    | `IndexOrID (index, doc_type), Some doc_id -> map_typed_doc_id index doc_type doc_id
+    | `ID (index, doc_type, doc_id), None -> Lwt.return (index, Some doc_type, Some doc_id)
+    | `ID (index, doc_type, doc_id1), Some doc_id2 -> Exn_lwt.fail "invalid document id : /%s/%s/%s/%s" index doc_type doc_id1 doc_id2
+  in
+  let%lwt doc_type =
     match coalesce [ doc_type; default_put_doc_type; ] with
-    | Some doc_type -> Lwt.return (doc_type, doc_id)
-    | None ->
-    let fail () = Exn_lwt.fail "DOC_TYPE is not provided" in
-    match doc_id with
-    | None -> fail ()
-    | Some doc_id ->
-    match Stre.splitc doc_id '/' with
-    | doc_type, "" -> Lwt.return (doc_type, None)
-    | doc_type, doc_id -> Lwt.return (doc_type, Some doc_id)
-    | exception Not_found -> fail ()
+    | Some doc_type -> Lwt.return doc_type
+    | None -> Exn_lwt.fail "DOC_TYPE is not provided"
   in
   let args = [ "routing", routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
