@@ -68,8 +68,6 @@ type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
 type 't json_writer = Bi_outbuf.t -> 't -> unit
 
 type es_version_config = {
-  source_includes_arg : string;
-  source_excludes_arg : string;
   read_total : Elastic_t.total json_reader;
   write_total : Elastic_t.total json_writer;
   default_get_doc_type : string;
@@ -77,8 +75,6 @@ type es_version_config = {
 }
 
 let es6_config = {
-  source_includes_arg = "_source_include";
-  source_excludes_arg = "_source_exclude";
   read_total = Elastic_j.read_es6_total;
   write_total = Elastic_j.write_es6_total;
   default_get_doc_type = "_all";
@@ -86,8 +82,6 @@ let es6_config = {
 }
 
 let es7_config = {
-  source_includes_arg = "_source_includes";
-  source_excludes_arg = "_source_excludes";
   read_total = Elastic_j.read_total;
   write_total = Elastic_j.write_total;
   default_get_doc_type = "_doc";
@@ -608,7 +602,7 @@ let get ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt ({ source_includes_arg; source_excludes_arg; default_get_doc_type; _ }) =
+  let%lwt ({ default_get_doc_type; _ }) =
     get_es_version_config common_args host es_version config version
   in
   match%lwt map_ids ~default_get_doc_type index doc_type doc_ids with
@@ -643,8 +637,8 @@ let get ({ verbose; es_version; _ } as common_args) {
   in
   let args = [
     "timeout", timeout;
-    (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
-    source_excludes_arg, csv source_excludes;
+    (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
+    "_source_excludes", csv source_excludes;
     "routing", routing;
     "preference", csv ~sep:"|" preference;
   ] in
@@ -916,7 +910,7 @@ let search ({ verbose; es_version; _ } as common_args) {
   let config = Common.load_config () in
   let { Common.host; version; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let%lwt { source_includes_arg; source_excludes_arg; read_total; write_total; _ } =
+  let%lwt { read_total; write_total; _ } =
     get_es_version_config common_args host es_version config version
   in
   let body_query = Option.map get_body_query_file body_query in
@@ -926,8 +920,8 @@ let search ({ verbose; es_version; _ } as common_args) {
     "from", int from;
     "track_total_hits", track_total_hits;
     "sort", csv sort;
-    (if source_excludes = [] then "_source" else source_includes_arg), csv source_includes;
-    source_excludes_arg, csv source_excludes;
+    (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
+    "_source_excludes", csv source_excludes;
     "stored_fields", csv fields;
     "routing", routing;
     "preference", csv ~sep:"|" preference;
