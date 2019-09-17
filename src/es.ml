@@ -1028,6 +1028,184 @@ let search ({ verbose; es_version; _ } as common_args) {
   in
   search ()
 
+module Settings = struct
+
+  type input =
+    | Text
+    | JSON
+
+  type output =
+    | Text
+    | JSON
+    | Raw
+
+  type type_ =
+    | Transient
+    | Persistent
+    | Defaults
+
+  type args = {
+    host : string;
+    keys : string list;
+    reset : bool;
+    include_defaults : bool;
+    input : input;
+    output : output;
+    type_ : type_ option;
+  }
+
+  let settings { verbose; _ } {
+      host;
+      keys;
+      reset;
+      include_defaults;
+      input;
+      output;
+      type_;
+    } =
+    let config = Common.load_config () in
+    let { Common.host; _ } = Common.get_cluster config host in
+    let (get_keys, set_keys) =
+      List.map begin fun s ->
+        match Stre.splitc s '=' with
+        | exception Not_found when reset -> `Set (s, None)
+        | exception Not_found -> `Get s
+        | key, value -> `Set (key, Some value)
+      end keys |>
+      List.partition (function `Get _ -> true | `Set _ -> false)
+    in
+    let get_keys = List.map (function `Get key -> key | `Set _ -> assert false) get_keys in
+    let set_keys = List.map (function `Get _ -> assert false | `Set pair -> pair) set_keys in
+    Lwt_main.run @@
+    let%lwt set_mode =
+      match set_keys, type_ with
+      | [], _ -> Lwt.return_none
+      | _, Some Transient -> Lwt.return_some `Transient
+      | _, Some Persistent -> Lwt.return_some `Persistent
+      | _, Some Defaults -> fail_lwt "type defaults is not valid for set or reset" (* FIXME *)
+      | _, None -> fail_lwt "type is missing" (* FIXME *)
+    in
+    let%lwt () =
+      match set_mode with
+      | None -> Lwt.return_unit
+      | Some mode ->
+      let%lwt values =
+        Lwt_list.map_s begin fun (key, value) ->
+          let%lwt value =
+            match value with
+            | None -> Lwt.return `Null
+            | Some value ->
+            match input with
+            | Text -> Lwt.return (`String value)
+            | JSON -> Lwt.wrap1 J.from_string value
+          in
+          Lwt.return (key, value)
+        end set_keys
+      in
+      let values = Some (`Assoc values) in
+      let (transient, persistent) =
+        match mode with
+        | `Transient -> values, None
+        | `Persistent -> None, values
+      in
+      let settings = ({ transient; persistent; defaults = None; } : Elastic_t.cluster_tree_settings) in
+      let body = (JSON (Elastic_j.string_of_cluster_tree_settings settings) : content_type) in
+      match%lwt request ~verbose ~body `PUT host [ Some "_cluster"; Some "settings"; ] [] id with
+      | Error error -> fail_lwt "settings error:\n%s" error
+      | Ok result -> Lwt_io.printl result
+    in
+    let%lwt () =
+      match get_keys, set_keys with
+      | [], _ :: _ -> Lwt.return_unit
+      | _ ->
+      let include_defaults = include_defaults || type_ = Some Defaults in
+      let args = [
+        "flat_settings", Some "true";
+        "include_defaults", flag include_defaults;
+      ] in
+      match%lwt request ~verbose `GET host [ Some "_cluster"; Some "settings"; ] args id with
+      | Error error -> fail_lwt "settings error:\n%s" error
+      | Ok result ->
+      match get_keys, output, type_ with
+      | [], Raw, None -> Lwt_io.printl result
+      | _ ->
+      let%lwt { Elastic_t.transient; persistent; defaults; } = Lwt.wrap1 Elastic_j.cluster_flat_settings_of_string result in
+      let type_settings =
+        match type_ with
+        | None -> None
+        | Some Defaults -> Some defaults
+        | Some Transient -> Some transient
+        | Some Persistent -> Some persistent
+      in
+      let output =
+        match output with
+        | Text -> `Text
+        | JSON -> `JSON
+        | Raw -> `Raw
+      in
+      let module SS = Set.Make(String) in
+      let get_keys = SS.of_list get_keys in
+      let get_keys_empty = SS.is_empty get_keys in
+      let get_keys_typed_single = SS.cardinal get_keys = 1 && Option.is_some type_ in
+      match output with
+      | `Raw ->
+        let filter =
+          match get_keys_empty with
+          | true -> id
+          | false -> (fun settings -> List.filter (fun (key, _value) -> SS.mem key get_keys) settings)
+        in
+        begin match type_settings with
+        | Some settings ->
+          let settings = Option.map_default filter [] settings in
+          Lwt_io.printl (Elastic_j.string_of_settings settings)
+        | None ->
+          let transient = Option.map filter transient in
+          let persistent = Option.map filter persistent in
+          let defaults = Option.map filter defaults in
+          Lwt_io.printl (Elastic_j.string_of_cluster_flat_settings { Elastic_t.transient; persistent; defaults; })
+        end
+      | `Text | `JSON as output ->
+      let settings =
+        match type_settings with
+        | Some settings -> [ None, settings; ]
+        | None -> [ Some "transient: ", transient; Some "persistent: ", persistent; Some "defaults: ", defaults; ]
+      in
+      let string_of_value =
+        match output with
+        | `JSON -> (fun value -> J.to_string value)
+        | `Text ->
+        function
+        | `Null -> "null"
+        | `Intlit s | `String s -> s
+        | `Bool x -> string_of_bool x
+        | `Int x -> string_of_int x
+        | `Float x -> string_of_float x
+        | `List _ | `Assoc _ | `Tuple _ | `Variant _ as value -> J.to_string value
+      in
+      let print_value value =
+        Lwt_io.printl (string_of_value value)
+      in
+      let print_key_value prefix key value =
+        Lwt_io.printlf "%s%s: %s" prefix key (string_of_value value)
+      in
+      let print prefix (key, value) =
+        match prefix, get_keys_typed_single with
+        | None, true -> print_value value
+        | _ -> print_key_value (Option.default "" prefix) key value
+      in
+      Lwt_list.iter_s begin function
+        | _prefix, None -> Lwt.return_unit
+        | prefix, Some settings ->
+        match get_keys_empty with
+        | true -> Lwt_list.iter_s (print prefix) settings
+        | _ ->
+        Lwt_list.iter_s (function key, _ as pair when SS.mem key get_keys -> print prefix pair | _ -> Lwt.return_unit) settings
+      end settings
+    in
+    Lwt.return_unit
+
+end
+
 open Cmdliner
 
 let common_args =
@@ -1499,6 +1677,73 @@ let search_tool =
   let man = [] in
   info "search" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let settings_tool =
+  let open Settings in
+  let settings
+      common_args
+      host
+      keys
+      reset
+      include_defaults
+      input
+      output
+      type_
+    =
+    settings common_args {
+      host;
+      keys;
+      reset;
+      include_defaults;
+      input;
+      output;
+      type_;
+    }
+  in
+  let keys = Arg.(value & pos_right 0 string [] & info [] ~docv:"KEYS" ~doc:"setting keys") in
+  let reset = Arg.(value & flag & info [ "r"; "reset"; ] ~doc:"reset keys") in
+  let include_defaults = Arg.(value & flag & info [ "D"; "include-defaults"; ] ~doc:"include defaults") in
+  let input = Arg.(value & vflag (Text : input) [ JSON, info [ "j"; "input-json"; ] ~doc:"json input format"; ]) in
+  let output =
+    let output =
+      let parse output =
+        match output with
+        | "text" -> Ok (Text : output)
+        | "json" -> Ok JSON
+        | "raw" -> Ok Raw
+        | _ -> Error (`Msg (sprintf "unknown output format: %s" output))
+      in
+      let print fmt output =
+        let output =
+          match output with
+          | (Text : output) -> "text"
+          | JSON -> "json"
+          | Raw -> "raw"
+        in
+        Format.fprintf fmt "%s" output
+      in
+      Arg.(conv (parse, print))
+    in
+    Arg.(value & opt ~vopt:(JSON : output) output Text & info [ "J"; "output"; ] ~doc:"choose output format")
+  in
+  let type_transient = Some Transient, Arg.info [ "t"; "transient"; ] ~doc:"transient setting" in
+  let type_persistent = Some Persistent, Arg.info [ "p"; "persistent"; ] ~doc:"persistent setting" in
+  let type_defaults = Some Defaults, Arg.info [ "d"; "default"; ] ~doc:"default setting" in
+  let type_ = Arg.(value & vflag None [ type_transient; type_persistent; type_defaults; ]) in
+  let open Term in
+  const settings $
+    common_args $
+    host $
+    keys $
+    reset $
+    include_defaults $
+    input $
+    output $
+    type_,
+  let doc = "manage cluster settings" in
+  let exits = default_exits in
+  let man = [] in
+  info "settings" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let tools = [
   alias_tool;
   delete_tool;
@@ -1510,6 +1755,7 @@ let tools = [
   recovery_tool;
   refresh_tool;
   search_tool;
+  settings_tool;
 ]
 
 let () =

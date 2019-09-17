@@ -142,6 +142,20 @@ type index_alias = {
   alias : string;
 }
 
+type settings = (string * json) list <json repr="object">
+
+type cluster_flat_settings = {
+  ?transient : settings option;
+  ?persistent : settings option;
+  ?defaults : settings option;
+}
+
+type cluster_tree_settings = {
+  ?transient : json option;
+  ?persistent : json option;
+  ?defaults : json option;
+}
+
 type indices_shards = (string * index_shards) list <json repr="object">
 
 type index_shards = {
