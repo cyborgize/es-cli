@@ -450,16 +450,14 @@ module Common_args = struct
 
   let format =
     let parse format =
-      try
-        Ok (List.map hit_format_of_string (Stre.nsplitc format ','))
-      with Failure msg ->
-        Error (`Msg msg)
+      match hit_format_of_string format with
+      | exception Failure msg -> Error (`Msg msg)
+      | format -> Ok format
     in
-    let print fmt x =
-      String.concat "," (List.map string_of_hit_format x) |>
-      Format.fprintf fmt "%s"
+    let print fmt format =
+      Format.fprintf fmt "%s" (string_of_hit_format format)
     in
-    Arg.conv (parse, print)
+    Arg.(list (conv (parse, print)))
 
   let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)")
 
@@ -1333,31 +1331,17 @@ let recovery_tool =
   in
   let format =
     let parse format =
-      try
-        Ok (List.map index_shard_format_of_string (Stre.nsplitc format ','))
-      with Failure msg ->
-        Error (`Msg msg)
+      match index_shard_format_of_string format with
+      | exception Failure msg -> Error (`Msg msg)
+      | format -> Ok format
     in
-    let print fmt x =
-      String.concat "," (List.map string_of_index_shard_format x) |>
-      Format.fprintf fmt "%s"
+    let print fmt format =
+      Format.fprintf fmt "%s" (string_of_index_shard_format format)
     in
     Arg.conv (parse, print)
   in
-  let filter =
-    let parse filter =
-      match Stre.splitc filter '=' with
-      | exception Not_found -> Error (`Msg "filter must have the form COLUMN=VALUE")
-      | column, value ->
-      match index_shard_format_of_string column with
-      | exception (Failure msg) -> Error (`Msg msg)
-      | column -> Ok (column, value)
-    in
-    let print fmt (column, value) =
-      Format.fprintf fmt "%s=%s" (string_of_index_shard_format column) value
-    in
-    Arg.conv (parse, print)
-  in
+  let filter = Arg.pair ~sep:'=' format Arg.string in
+  let format = Arg.list format in
   let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format") in
   let filter_include =
     let doc = "include only shards matching filter" in
