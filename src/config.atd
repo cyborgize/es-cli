@@ -10,6 +10,18 @@ type cluster_config = {
   ?host : string option;
   ?nodes : string list option;
   ?version : version option;
+  inherit aliases_config;
 }
 
 type version = json wrap <ocaml module="Wrap.Version">
+
+type aliases_config = {
+  ~aliases : (string * alias_config) list <json repr="object">;
+}
+
+type alias_config = {
+  command : string;
+  ?host : string option;
+  ~args : string list;
+  ~allow_no_host: bool;
+}

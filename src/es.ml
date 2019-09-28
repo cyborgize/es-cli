@@ -1760,7 +1760,8 @@ let tools = [
 
 let () =
   try
-    Term.(exit (eval_choice ~catch:false default_tool tools))
+    let argv = Common.get_argv () in
+    Term.(exit (eval_choice ~catch:false ~argv default_tool tools))
   with
   | ErrorExit -> exit 1
   | exn -> log #error ~exn "uncaught exception"; exit 125
