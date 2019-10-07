@@ -23,5 +23,5 @@ type alias_config = {
   command : string;
   ?host : string option;
   ~args : string list;
-  ~allow_no_host: bool;
+  ~no_host: bool;
 }

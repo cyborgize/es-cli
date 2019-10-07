@@ -66,16 +66,25 @@ let get_argv () =
   | exe :: command :: rest ->
   match get_config_alias command with
   | None -> Sys.argv
-  | Some { Config_t.command; host; args; allow_no_host; } ->
+  | Some { Config_t.command; host; args; no_host; } ->
   let rest =
     match host with
     | Some host -> host :: (args @ rest)
     | None ->
-    match rest with
-    | host :: rest -> host :: (args @ rest)
-    | [] when allow_no_host -> args @ rest
-    | [] -> []
+    match no_host with
+    | true -> args @ rest
+    | false ->
+    let is_pos s = s = "" || s.[0] <> '-' in
+    let rec pos acc = function
+      | host :: rest when is_pos host -> Some (host, List.rev (List.rev_append acc rest))
+      | arg :: rest -> pos (arg :: acc) rest
+      | [] -> None
+    in
+    match pos [] rest with
+    | Some (host, rest) -> host :: (args @ rest)
+    | None -> []
   in
+  log #info "%s" (Stre.list id (exe :: command :: rest));
   Array.of_list (exe :: command :: rest)
 
 let get_cluster config name =
