@@ -3,13 +3,13 @@
   (public_name es)
   (libraries atdgen cmdliner devkit extlib re2)
   (modules :standard \ gen_version)
-  (preprocess (pps lwt_ppx)))
+  (preprocess (pps lwt_ppx ppx_let)))
 
 (executable
   (name gen_version)
   (libraries mybuild)
   (modules gen_version)
-  (preprocess (pps lwt_ppx)))
+  (preprocess (pps lwt_ppx ppx_let)))
 
 (rule
   (targets version.ml)

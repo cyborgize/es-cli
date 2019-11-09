@@ -461,7 +461,7 @@ module Common_args = struct
 
   let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)")
 
-end
+end (* Common_args *)
 
 open Common_args
 
@@ -1204,9 +1204,17 @@ module Settings = struct
     in
     Lwt.return_unit
 
-end
+end (* Settings *)
 
 open Cmdliner
+
+module Let_syntax = struct
+
+  let map ~f t = Term.(const f $ t)
+
+  let both a b = Term.(const (fun x y -> x, y) $ a $ b)
+
+end
 
 let common_args =
   let args es_version verbose = { es_version; verbose; } in
@@ -1232,27 +1240,6 @@ let default_tool =
   Term.(ret (const (fun _ -> `Help (`Pager, None)) $ common_args), info "es" ~version:Common.version ~doc ~sdocs ~exits ~man)
 
 let alias_tool =
-  let alias
-      common_args
-      host
-      index
-      add
-      remove
-    =
-    let map action = function
-      | alias, Some index -> { action; index; alias; }
-      | alias, None ->
-      match index with
-      | Some index -> { action; index; alias; }
-      | None -> Exn.fail "INDEX is not specified for %s" alias
-    in
-    let add = List.map (map `Add) add in
-    let remove = List.map (map `Remove) remove in
-    alias common_args {
-      host;
-      actions = add @ remove;
-    }
-  in
   let action =
     let parse x =
       match Stre.splitc x '=' with
@@ -1266,247 +1253,187 @@ let alias_tool =
     in
     Arg.conv (parse, print)
   in
-  let index =
+  let%map common_args = common_args
+  and host = host
+  and index =
     let doc = "index to operate on. If not provided, -a and -r must include the =INDEX part." in
     Arg.(value & pos 1 (some string) None & info [] ~docv:"INDEX" ~doc)
-  in
-  let add =
+  and add =
     let doc = "add index INDEX to alias ALIAS" in
     Arg.(value & opt_all action [] & info [ "a"; "add"; ] ~docv:"ALIAS[=INDEX]" ~doc)
-  in
-  let remove =
+  and remove =
     let doc = "remove index INDEX from alias ALIAS" in
     Arg.(value & opt_all action [] & info [ "r"; "remove"; ] ~docv:"ALIAS[=INDEX]" ~doc)
   in
+  let map action = function
+    | alias, Some index -> { action; index; alias; }
+    | alias, None ->
+    match index with
+    | Some index -> { action; index; alias; }
+    | None -> Exn.fail "INDEX is not specified for %s" alias
+  in
+  let add = List.map (map `Add) add in
+  let remove = List.map (map `Remove) remove in
+  alias common_args {
+    host;
+    actions = add @ remove;
+  }
+
+let alias_tool =
+  alias_tool,
   let open Term in
-  const alias $
-    common_args $
-    host $
-    index $
-    add $
-    remove,
   let doc = "add or remove index aliases" in
   let exits = default_exits in
   let man = [] in
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let delete_tool =
-  let delete
-      common_args
-      host
-      index
-      doc_type
-      doc_ids
-      timeout
-      routing
-    =
-    delete common_args {
-      host;
-      index;
-      doc_type;
-      doc_ids;
-      timeout;
-      routing;
-    }
-  in
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and doc_type = doc_type
+  and doc_ids = doc_ids
+  and timeout = timeout
+  and routing = routing in
+  delete common_args {
+    host;
+    index;
+    doc_type;
+    doc_ids;
+    timeout;
+    routing;
+  }
+
+let delete_tool =
+  delete_tool,
   let open Term in
-  const delete $
-    common_args $
-    host $
-    index $
-    doc_type $
-    doc_ids $
-    timeout $
-    routing,
   let doc = "delete document(s)" in
   let exits = default_exits in
   let man = [] in
   info "delete" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let flush_tool =
-  let flush
-      common_args
-      host
-      indices
-      force
-      synced
-      wait
-    =
-    flush common_args {
-      host;
-      indices;
-      force;
-      synced;
-      wait;
-    }
-  in
-  let indices =
+  let%map common_args = common_args
+  and host = host
+  and indices =
     let doc = "indices to flush" in
     Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
-  in
-  let force = Arg.(value & flag & info [ "f"; "force"; ] ~doc:"force flush") in
-  let synced = Arg.(value & flag & info [ "s"; "synced"; ] ~doc:"synced flush") in
-  let wait = Arg.(value & flag & info [ "w"; "wait"; ] ~doc:"wait if another flush is already ongoing") in
+  and force = Arg.(value & flag & info [ "f"; "force"; ] ~doc:"force flush")
+  and synced = Arg.(value & flag & info [ "s"; "synced"; ] ~doc:"synced flush")
+  and wait = Arg.(value & flag & info [ "w"; "wait"; ] ~doc:"wait if another flush is already ongoing") in
+  flush common_args {
+    host;
+    indices;
+    force;
+    synced;
+    wait;
+  }
+
+let flush_tool =
+  flush_tool,
   let open Term in
-  const flush $
-    common_args $
-    host $
-    indices $
-    force $
-    synced $
-    wait,
   let doc = "flush indices" in
   let exits = default_exits in
   let man = [] in
   info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let get_tool =
-  let get
-      common_args
-      host
-      index
-      doc_type
-      doc_ids
-      timeout
-      source_includes
-      source_excludes
-      routing
-      preference
-      format
-    =
-    get common_args {
-      host;
-      index;
-      doc_type;
-      doc_ids;
-      timeout;
-      source_includes;
-      source_excludes;
-      routing;
-      preference;
-      format;
-    }
-  in
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and doc_type = doc_type
+  and doc_ids = doc_ids
+  and timeout = timeout
+  and source_includes = source_includes
+  and source_excludes = source_excludes
+  and routing = routing
+  and preference = preference
+  and format = format in
+  get common_args {
+    host;
+    index;
+    doc_type;
+    doc_ids;
+    timeout;
+    source_includes;
+    source_excludes;
+    routing;
+    preference;
+    format;
+  }
+
+let get_tool =
+  get_tool,
   let open Term in
-  const get $
-    common_args $
-    host $
-    index $
-    doc_type $
-    doc_ids $
-    timeout $
-    source_includes $
-    source_excludes $
-    routing $
-    preference $
-    format,
   let doc = "get document(s)" in
   let exits = default_exits in
   let man = [] in
   info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let health_tool =
-  let health
-      common_args
-      hosts
-    =
-    health common_args {
-      hosts;
-    }
-  in
-  let hosts = Arg.(value & pos_all string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc:"hosts") in
+  let%map common_args = common_args
+  and hosts = Arg.(value & pos_all string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc:"hosts") in
+  health common_args {
+    hosts;
+  }
+
+let health_tool =
+  health_tool,
   let open Term in
-  const health $
-    common_args $
-    hosts,
   let doc = "cluster health" in
   let exits = default_exits in
   let man = [] in
   info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let nodes_tool =
-  let nodes
-      common_args
-      host
-      check_nodes
-    =
-    nodes common_args {
-      host;
-      check_nodes;
-    }
-  in
-  let check_nodes =
+  let%map common_args = common_args
+  and host = host
+  and check_nodes =
     let doc = "check presence of specified nodes" in
     Arg.(value & pos_right 0 string [] & info [] ~docv:"HOST1[ HOST2[ HOST3...]]" ~doc)
   in
+  nodes common_args {
+    host;
+    check_nodes;
+  }
+
+let nodes_tool =
+  nodes_tool,
   let open Term in
-  const nodes $
-    common_args $
-    host $
-    check_nodes,
   let doc = "cluster nodes" in
   let exits = default_exits in
   let man = [] in
   info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let put_tool =
-  let put
-      common_args
-      host
-      index
-      doc_type
-      doc_id
-      routing
-      body
-    =
-    put common_args {
-      host;
-      index;
-      doc_type;
-      doc_id;
-      routing;
-      body;
-    }
-  in
-  let body =
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and doc_type = doc_type
+  and doc_id = Arg.value doc_id
+  and routing = routing
+  and body =
     let doc = "document source to put" in
     Arg.(value & opt (some string) None & info [ "s"; "source"; ] ~docv:"DOC" ~doc)
   in
+  put common_args {
+    host;
+    index;
+    doc_type;
+    doc_id;
+    routing;
+    body;
+  }
+
+let put_tool =
+  put_tool,
   let open Term in
-  const put $
-    common_args $
-    host $
-    index $
-    doc_type $
-    Arg.value doc_id $
-    routing $
-    body,
   let doc = "put document" in
   let exits = default_exits in
   let man = [] in
   info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let recovery_tool =
-  let recovery
-      common_args
-      host
-      indices
-      filter_include
-      filter_exclude
-      format
-    =
-    recovery common_args {
-      host;
-      indices;
-      filter_include;
-      filter_exclude;
-      format;
-    }
-  in
-  let indices =
-    let doc = "indices to check" in
-    Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
-  in
   let format =
     let parse format =
       match index_shard_format_of_string format with
@@ -1520,158 +1447,115 @@ let recovery_tool =
   in
   let filter = Arg.pair ~sep:'=' format Arg.string in
   let format = Arg.list format in
-  let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format") in
-  let filter_include =
+  let%map common_args = common_args
+  and host = host
+  and indices =
+    let doc = "indices to check" in
+    Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
+  and format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format")
+  and filter_include =
     let doc = "include only shards matching filter" in
     Arg.(value & opt_all filter [] & info [ "i"; "include"; ] ~doc ~docv:"COLUMN=VALUE")
-  in
-  let filter_exclude =
+  and filter_exclude =
     let doc = "exclude shards matching filter" in
     Arg.(value & opt_all filter [] & info [ "e"; "exclude"; ] ~doc ~docv:"COLUMN=VALUE")
   in
+  recovery common_args {
+    host;
+    indices;
+    filter_include;
+    filter_exclude;
+    format;
+  }
+
+let recovery_tool =
+  recovery_tool,
   let open Term in
-  const recovery $
-    common_args $
-    host $
-    indices $
-    filter_include $
-    filter_exclude $
-    format,
   let doc = "cluster recovery" in
   let exits = default_exits in
   let man = [] in
   info "recovery" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let refresh_tool =
-  let refresh
-      common_args
-      host
-      indices
-    =
-    refresh common_args {
-      host;
-      indices;
-    }
-  in
-  let indices =
+  let%map common_args = common_args
+  and host = host
+  and indices =
     let doc = "indices to refresh" in
     Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
   in
+  refresh common_args {
+    host;
+    indices;
+  }
+
+let refresh_tool =
+  refresh_tool,
   let open Term in
-  const refresh $
-    common_args $
-    host $
-    indices,
   let doc = "refresh indices" in
   let exits = default_exits in
   let man = [] in
   info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let search_tool =
-  let search
-      common_args
-      host
-      index
-      doc_type
-      timeout
-      size
-      from
-      sort
-      source_includes
-      source_excludes
-      fields
-      routing
-      preference
-      scroll
-      slice_id
-      slice_max
-      query
-      body_query
-      analyzer
-      analyze_wildcard
-      default_field
-      default_operator
-      explain
-      show_count
-      track_total_hits
-      retry
-      format
-    =
-    search common_args {
-      host;
-      index;
-      doc_type;
-      timeout;
-      size;
-      from;
-      sort;
-      source_includes;
-      source_excludes;
-      fields;
-      routing;
-      preference;
-      scroll;
-      slice_id;
-      slice_max;
-      query;
-      body_query;
-      analyzer;
-      analyze_wildcard;
-      default_field;
-      default_operator;
-      explain;
-      show_count;
-      track_total_hits;
-      retry;
-      format;
-    }
-  in
-  let size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size") in
-  let from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from") in
-  let sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort") in
-  let fields = Arg.(value & opt_all string [] & info [ "F"; "fields"; ] ~doc:"fields") in
-  let scroll = Arg.(value & opt (some string) None & info [ "S"; "scroll"; ] ~doc:"scroll") in
-  let slice_max = Arg.(value & opt (some int) None & info [ "N"; "slice-max"; ] ~doc:"slice_max") in
-  let slice_id = Arg.(value & opt (some int) None & info [ "I"; "slice-id"; ] ~doc:"slice_id") in
-  let query = Arg.(value & opt (some string) None & info [ "q"; "query"; ] ~doc:"query using query_string query") in
-  let body_query = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY_QUERY" ~doc:"body query") in
-  let analyzer = Arg.(value & opt (some string) None & info [ "a"; "analyzer"; ] ~doc:"analyzer to be used for query_string query") in
-  let analyze_wildcard = Arg.(value & flag & info [ "w"; "analyze-wildcard"; ] ~doc:"analyze wildcard and prefix queries in query_string query") in
-  let default_field = Arg.(value & opt (some string) None & info [ "d"; "default-field"; ] ~doc:"default field to be used for query_string query") in
-  let default_operator = Arg.(value & opt (some string) None & info [ "O"; "default-operator"; ] ~doc:"default operator to be used for query_string query") in
-  let explain = Arg.(value & flag & info [ "E"; "explain"; ] ~doc:"explain hits") in
-  let show_count = Arg.(value & flag & info [ "c"; "show-count"; ] ~doc:"output total number of hits") in
-  let track_total_hits = Arg.(value & opt (some string) None & info [ "C"; "track-total-hits"; ] ~doc:"track total number hits (true, false, or a number)") in
-  let retry = Arg.(value & flag & info [ "R"; "retry"; ] ~doc:"retry if there are any failed shards") in
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and doc_type = doc_type
+  and timeout = timeout
+  and source_includes = source_includes
+  and source_excludes = source_excludes
+  and routing = routing
+  and preference = preference
+  and format = format
+  and size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size")
+  and from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from")
+  and sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort")
+  and fields = Arg.(value & opt_all string [] & info [ "F"; "fields"; ] ~doc:"fields")
+  and scroll = Arg.(value & opt (some string) None & info [ "S"; "scroll"; ] ~doc:"scroll")
+  and slice_max = Arg.(value & opt (some int) None & info [ "N"; "slice-max"; ] ~doc:"slice_max")
+  and slice_id = Arg.(value & opt (some int) None & info [ "I"; "slice-id"; ] ~doc:"slice_id")
+  and query = Arg.(value & opt (some string) None & info [ "q"; "query"; ] ~doc:"query using query_string query")
+  and body_query = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY_QUERY" ~doc:"body query")
+  and analyzer = Arg.(value & opt (some string) None & info [ "a"; "analyzer"; ] ~doc:"analyzer to be used for query_string query")
+  and analyze_wildcard = Arg.(value & flag & info [ "w"; "analyze-wildcard"; ] ~doc:"analyze wildcard and prefix queries in query_string query")
+  and default_field = Arg.(value & opt (some string) None & info [ "d"; "default-field"; ] ~doc:"default field to be used for query_string query")
+  and default_operator = Arg.(value & opt (some string) None & info [ "O"; "default-operator"; ] ~doc:"default operator to be used for query_string query")
+  and explain = Arg.(value & flag & info [ "E"; "explain"; ] ~doc:"explain hits")
+  and show_count = Arg.(value & flag & info [ "c"; "show-count"; ] ~doc:"output total number of hits")
+  and track_total_hits = Arg.(value & opt (some string) None & info [ "C"; "track-total-hits"; ] ~doc:"track total number hits (true, false, or a number)")
+  and retry = Arg.(value & flag & info [ "R"; "retry"; ] ~doc:"retry if there are any failed shards") in
+  search common_args {
+    host;
+    index;
+    doc_type;
+    timeout;
+    size;
+    from;
+    sort;
+    source_includes;
+    source_excludes;
+    fields;
+    routing;
+    preference;
+    scroll;
+    slice_id;
+    slice_max;
+    query;
+    body_query;
+    analyzer;
+    analyze_wildcard;
+    default_field;
+    default_operator;
+    explain;
+    show_count;
+    track_total_hits;
+    retry;
+    format;
+  }
+
+let search_tool =
+  search_tool,
   let open Term in
-  const search $
-    common_args $
-    host $
-    index $
-    doc_type $
-    timeout $
-    size $
-    from $
-    sort $
-    source_includes $
-    source_excludes $
-    fields $
-    routing $
-    preference $
-    scroll $
-    slice_id $
-    slice_max $
-    query $
-    body_query $
-    analyzer $
-    analyze_wildcard $
-    default_field $
-    default_operator $
-    explain $
-    show_count $
-    track_total_hits $
-    retry $
-    format,
   let doc = "search" in
   let exits = default_exits in
   let man = [] in
@@ -1679,31 +1563,13 @@ let search_tool =
 
 let settings_tool =
   let open Settings in
-  let settings
-      common_args
-      host
-      keys
-      reset
-      include_defaults
-      input
-      output
-      type_
-    =
-    settings common_args {
-      host;
-      keys;
-      reset;
-      include_defaults;
-      input;
-      output;
-      type_;
-    }
-  in
-  let keys = Arg.(value & pos_right 0 string [] & info [] ~docv:"KEYS" ~doc:"setting keys") in
-  let reset = Arg.(value & flag & info [ "r"; "reset"; ] ~doc:"reset keys") in
-  let include_defaults = Arg.(value & flag & info [ "D"; "include-defaults"; ] ~doc:"include defaults") in
-  let input = Arg.(value & vflag (Text : input) [ JSON, info [ "j"; "input-json"; ] ~doc:"json input format"; ]) in
-  let output =
+  let%map common_args = common_args
+  and host = host
+  and keys = Arg.(value & pos_right 0 string [] & info [] ~docv:"KEYS" ~doc:"setting keys")
+  and reset = Arg.(value & flag & info [ "r"; "reset"; ] ~doc:"reset keys")
+  and include_defaults = Arg.(value & flag & info [ "D"; "include-defaults"; ] ~doc:"include defaults")
+  and input = Arg.(value & vflag (Text : input) [ JSON, info [ "j"; "input-json"; ] ~doc:"json input format"; ])
+  and output =
     let output =
       let parse output =
         match output with
@@ -1724,21 +1590,25 @@ let settings_tool =
       Arg.(conv (parse, print))
     in
     Arg.(value & opt ~vopt:(JSON : output) output Text & info [ "J"; "output"; ] ~doc:"choose output format")
+  and type_ = 
+    let type_transient = Some Transient, Arg.info [ "t"; "transient"; ] ~doc:"transient setting" in
+    let type_persistent = Some Persistent, Arg.info [ "p"; "persistent"; ] ~doc:"persistent setting" in
+    let type_defaults = Some Defaults, Arg.info [ "d"; "default"; ] ~doc:"default setting" in
+    Arg.(value & vflag None [ type_transient; type_persistent; type_defaults; ])
   in
-  let type_transient = Some Transient, Arg.info [ "t"; "transient"; ] ~doc:"transient setting" in
-  let type_persistent = Some Persistent, Arg.info [ "p"; "persistent"; ] ~doc:"persistent setting" in
-  let type_defaults = Some Defaults, Arg.info [ "d"; "default"; ] ~doc:"default setting" in
-  let type_ = Arg.(value & vflag None [ type_transient; type_persistent; type_defaults; ]) in
+  settings common_args {
+    host;
+    keys;
+    reset;
+    include_defaults;
+    input;
+    output;
+    type_;
+  }
+
+let settings_tool =
+  settings_tool,
   let open Term in
-  const settings $
-    common_args $
-    host $
-    keys $
-    reset $
-    include_defaults $
-    input $
-    output $
-    type_,
   let doc = "manage cluster settings" in
   let exits = default_exits in
   let man = [] in
