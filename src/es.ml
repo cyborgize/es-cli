@@ -463,8 +463,6 @@ module Common_args = struct
 
 end (* Common_args *)
 
-open Common_args
-
 type alias_action = {
   action : [ `Add | `Remove ];
   index : string;
@@ -1253,6 +1251,7 @@ let alias_tool =
     in
     Arg.conv (parse, print)
   in
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and index =
@@ -1288,6 +1287,7 @@ let alias_tool =
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let delete_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and index = index
@@ -1313,6 +1313,7 @@ let delete_tool =
   info "delete" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let flush_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and indices =
@@ -1338,6 +1339,7 @@ let flush_tool =
   info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let get_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and index = index
@@ -1386,6 +1388,7 @@ let health_tool =
   info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let nodes_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and check_nodes =
@@ -1406,6 +1409,7 @@ let nodes_tool =
   info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let put_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and index = index
@@ -1448,7 +1452,7 @@ let recovery_tool =
   let filter = Arg.pair ~sep:'=' format Arg.string in
   let format = Arg.list format in
   let%map common_args = common_args
-  and host = host
+  and host = Common_args.host
   and indices =
     let doc = "indices to check" in
     Arg.(value & pos_right 0 string [] & info [] ~docv:"INDEX1[ INDEX2[ INDEX3...]]" ~doc)
@@ -1477,6 +1481,7 @@ let recovery_tool =
   info "recovery" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let refresh_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and indices =
@@ -1497,6 +1502,7 @@ let refresh_tool =
   info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let search_tool =
+  let open Common_args in
   let%map common_args = common_args
   and host = host
   and index = index
@@ -1562,6 +1568,7 @@ let search_tool =
   info "search" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let settings_tool =
+  let open Common_args in
   let open Settings in
   let%map common_args = common_args
   and host = host
