@@ -492,6 +492,62 @@ let alias { verbose; _ } {
   | Error error -> fail_lwt "alias error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
+type count_args = {
+  host : string;
+  index : string;
+  doc_type : string option;
+  timeout : string option;
+  routing : string option;
+  preference : string list;
+  query : string option;
+  body_query : string option;
+  analyzer : string option;
+  analyze_wildcard : bool;
+  default_field : string option;
+  default_operator : string option;
+  retry : bool;
+}
+
+let count ({ verbose; _ } as _common_args) {
+    host;
+    index;
+    doc_type;
+    timeout;
+    routing;
+    preference;
+    query;
+    body_query;
+    analyzer;
+    analyze_wildcard;
+    default_field;
+    default_operator;
+    retry = _;
+  } =
+  let config = Common.load_config () in
+  let { Common.host; _ } = Common.get_cluster config host in
+  Lwt_main.run @@
+  let body_query = Option.map get_body_query_file body_query in
+  let args = [
+    "timeout", timeout;
+    "routing", routing;
+    "preference", csv ~sep:"|" preference;
+    "analyzer", analyzer;
+    "analyze_wildcard", flag analyze_wildcard;
+    "df", default_field;
+    "default_operator", default_operator;
+    "q", query;
+  ] in
+  let body_query = match body_query with Some query -> Some (JSON query) | None -> None in
+  let count () =
+    match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_count"; ] args id with
+    | Error error -> fail_lwt "count error:\n%s" error
+    | Ok result ->
+    let { Elastic_t.count; shards = { Elastic_t.failed = _; _ }; } = Elastic_j.count_of_string result in
+    Lwt_io.printlf "%d" count
+    (* TODO check failed > 0 && retry *)
+  in
+  count ()
+
 type delete_args = {
   host : string;
   index : string;
@@ -812,7 +868,7 @@ let recovery { verbose; _ } {
     match filter_include, filter_exclude with
     | [], [] -> indices
     | _ ->
-    List.map begin fun (index, { Elastic_t.shards; }) ->
+    List.map begin fun (index, ({ shards; } : Elastic_t.index_shards)) ->
       let shards =
         List.filter begin fun shard ->
           List.for_all (fun (f, v) -> compare_fmt (f index shard) v) filter_include &&
@@ -822,7 +878,7 @@ let recovery { verbose; _ } {
       index, { Elastic_t.shards; }
     end indices
   in
-  Lwt_list.iter_s begin fun (index, { Elastic_t.shards; }) ->
+  Lwt_list.iter_s begin fun (index, ({ shards; } : Elastic_t.index_shards)) ->
     Lwt_list.iter_s begin fun shard ->
       List.map (fun f -> map_show (f index shard)) format |>
       String.concat " " |>
@@ -1287,6 +1343,46 @@ let alias_tool =
   let man = [] in
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let count_tool =
+  let open Common_args in
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and doc_type = doc_type
+  and timeout = timeout
+  and routing = routing
+  and preference = preference
+  and query = Arg.(value & opt (some string) None & info [ "q"; "query"; ] ~doc:"query using query_string query")
+  and body_query = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY_QUERY" ~doc:"body query")
+  and analyzer = Arg.(value & opt (some string) None & info [ "a"; "analyzer"; ] ~doc:"analyzer to be used for query_string query")
+  and analyze_wildcard = Arg.(value & flag & info [ "w"; "analyze-wildcard"; ] ~doc:"analyze wildcard and prefix queries in query_string query")
+  and default_field = Arg.(value & opt (some string) None & info [ "d"; "default-field"; ] ~doc:"default field to be used for query_string query")
+  and default_operator = Arg.(value & opt (some string) None & info [ "O"; "default-operator"; ] ~doc:"default operator to be used for query_string query")
+  and retry = Arg.(value & flag & info [ "R"; "retry"; ] ~doc:"retry if there are any failed shards") in
+  count common_args {
+    host;
+    index;
+    doc_type;
+    timeout;
+    routing;
+    preference;
+    query;
+    body_query;
+    analyzer;
+    analyze_wildcard;
+    default_field;
+    default_operator;
+    retry;
+  }
+
+let count_tool =
+  count_tool,
+  let open Term in
+  let doc = "count" in
+  let exits = default_exits in
+  let man = [] in
+  info "count" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let delete_tool =
   let open Common_args in
   let%map common_args = common_args
@@ -1624,6 +1720,7 @@ let settings_tool =
 
 let tools = [
   alias_tool;
+  count_tool;
   delete_tool;
   flush_tool;
   get_tool;

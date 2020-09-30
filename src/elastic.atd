@@ -103,6 +103,7 @@ type ('hit, 'total) response = ('hit hit, 'total) response'
 type shards = {
   total : int;
   successful : int;
+  skipped : int;
   failed : int;
 }
 
@@ -140,6 +141,11 @@ type alias_action = (alias_action_name' * index_alias) list <json repr="object">
 type index_alias = {
   index : string;
   alias : string;
+}
+
+type count = {
+  count : int;
+  shards <json name="_shards"> : shards;
 }
 
 type settings = (string * json) list <json repr="object">
