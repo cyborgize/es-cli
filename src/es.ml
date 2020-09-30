@@ -1063,6 +1063,7 @@ module Settings = struct
     } =
     let config = Common.load_config () in
     let { Common.host; _ } = Common.get_cluster config host in
+    let path = [ Some "_cluster"; Some "settings"; ] in
     let (get_keys, set_keys) =
       List.map begin fun s ->
         match Stre.splitc s '=' with
@@ -1108,7 +1109,7 @@ module Settings = struct
       in
       let settings = ({ transient; persistent; defaults = None; } : Elastic_t.cluster_tree_settings) in
       let body = (JSON (Elastic_j.string_of_cluster_tree_settings settings) : content_type) in
-      match%lwt request ~verbose ~body `PUT host [ Some "_cluster"; Some "settings"; ] [] id with
+      match%lwt request ~verbose ~body `PUT host path [] id with
       | Error error -> fail_lwt "settings error:\n%s" error
       | Ok result -> Lwt_io.printl result
     in
@@ -1121,7 +1122,7 @@ module Settings = struct
         "flat_settings", Some "true";
         "include_defaults", flag include_defaults;
       ] in
-      match%lwt request ~verbose `GET host [ Some "_cluster"; Some "settings"; ] args id with
+      match%lwt request ~verbose `GET host path args id with
       | Error error -> fail_lwt "settings error:\n%s" error
       | Ok result ->
       match get_keys, output, type_ with
