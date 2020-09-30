@@ -543,6 +543,58 @@ let count ({ verbose; _ } as _common_args) {
     | Error error -> fail_lwt "count error:\n%s" error
     | Ok result ->
     Lwt_io.printl result
+      (*
+    match show_count, format, scroll, retry with
+    | false, [], None, false -> Lwt_io.printl result
+    | show_count, format, scroll, retry ->
+    let rec loop result =
+      let { Elastic_t.hits = response_hits; scroll_id; shards = { Elastic_t.failed; _ }; _ } as response =
+        Elastic_j.response'_of_string (Elastic_j.read_option_hit J.read_json) read_total result
+      in
+      let%lwt () =
+        match show_count with
+        | false -> Lwt.return_unit
+        | true ->
+        match total with
+        | None -> Lwt_io.printl "unknown"
+        | Some { value; relation; } ->
+        match relation with
+        | `Eq -> Lwt_io.printlf "%d" value
+        | `Gte -> Lwt_io.printlf ">=%d" value
+      in
+      let%lwt () =
+        match format, show_count, retry with
+        | [], true, _ -> Lwt.return_unit
+        | [], false, false -> Lwt_io.printl result
+        | [], false, true when hits <> [] || Hashtbl.length htbl = 0 ->
+          { response with Elastic_t.hits = Some { response_hits with Elastic_t.hits; }; } |>
+          Elastic_j.string_of_response' (Elastic_j.write_option_hit J.write_json) write_total |>
+          Lwt_io.printl
+        | _ ->
+        Lwt_list.iter_s begin fun hit ->
+          List.map (fun f -> f hit) format |>
+          String.join " " |>
+          Lwt_io.printl
+        end hits
+      in
+      match failed > 0 && retry with
+      | true ->
+        let%lwt () = clear_scroll scroll_id in
+        count ()
+      | false ->
+      match hits, scroll, scroll_id with
+      | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
+      | _, Some scroll, Some scroll_id ->
+      let scroll = JSON (Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; }) in
+      match%lwt request ~verbose ~body:scroll `POST host scroll_path [] id with
+      | Error error ->
+        let%lwt () = Lwt_io.eprintlf "scroll error:\n%s" error in
+        let%lwt () = clear_scroll' scroll_id in
+        Lwt.fail ErrorExit
+      | Ok result -> loop result
+    in
+    loop result
+         *)
   in
   count ()
 
