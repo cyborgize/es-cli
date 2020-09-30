@@ -156,6 +156,13 @@ type cluster_tree_settings = {
   ?defaults : json option;
 }
 
+type indices_settings = (string * index_settings) list <json repr="object">
+
+type index_settings = {
+  settings : settings;
+  ?defaults: settings option;
+}
+
 type indices_shards = (string * index_shards) list <json repr="object">
 
 type index_shards = {
