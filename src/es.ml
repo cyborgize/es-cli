@@ -1026,7 +1026,7 @@ let search ({ verbose; es_version; _ } as common_args) {
   in
   search ()
 
-module Settings = struct
+module Cluster_settings = struct
 
   type input =
     | Text
@@ -1052,7 +1052,7 @@ module Settings = struct
     type_ : type_ option;
   }
 
-  let settings { verbose; _ } {
+  let cluster_settings { verbose; _ } {
       host;
       keys;
       reset;
@@ -1203,7 +1203,7 @@ module Settings = struct
     in
     Lwt.return_unit
 
-end (* Settings *)
+end (* Cluster_settings *)
 
 open Cmdliner
 
@@ -1604,7 +1604,7 @@ let cluster_settings_tool =
     let type_defaults = Some Defaults, Arg.info [ "d"; "default"; ] ~doc:"default setting" in
     Arg.(value & vflag None [ type_transient; type_persistent; type_defaults; ])
   in
-  settings common_args {
+  cluster_settings common_args {
     host;
     keys;
     reset;
@@ -1614,16 +1614,17 @@ let cluster_settings_tool =
     type_;
   }
 
-let settings_tool =
-  settings_tool,
+let cluster_settings_tool =
+  cluster_settings_tool,
   let open Term in
   let doc = "manage cluster settings" in
   let exits = default_exits in
   let man = [] in
-  info "settings" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  info "cluster_settings" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let tools = [
   alias_tool;
+  cluster_settings_tool;
   delete_tool;
   flush_tool;
   get_tool;
@@ -1633,7 +1634,6 @@ let tools = [
   recovery_tool;
   refresh_tool;
   search_tool;
-  settings_tool;
 ]
 
 let () =
