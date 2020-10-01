@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.2
+- `settings` tool
+- `count` tool
+- command aliases
+
 ## 1.1
 - `delete` tool
 - get and put: accept either index and doc_id, or index/[doc_type/]doc_id
