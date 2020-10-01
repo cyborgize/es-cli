@@ -751,6 +751,43 @@ let health { verbose; _ } {
   List.sort ~cmp:(Factor.Int.compare $$ fst) results |>
   Lwt_list.iter_s (fun (_i, result) -> Lwt_io.print result)
 
+type index_action =
+  | Get
+  | Create
+  | Delete
+  | Settings
+  | Mappings
+
+type index_args = {
+  host : string;
+  index : string;
+  action : index_action;
+  body : string option;
+}
+
+let index_tool { verbose; _ } {
+    host;
+    index;
+    action;
+    body;
+  } =
+  let config = Common.load_config () in
+  let { Common.host; _ } = Common.get_cluster config host in
+  Lwt_main.run @@
+  let (meth, body) = match body with Some body -> `PUT, Some (JSON body) | None -> `GET, None in
+  let (meth, path) =
+    match action with
+    | Get -> `GET, None
+    | Create -> `PUT, None
+    | Delete -> `DELETE, None
+    | Settings -> meth, Some "_settings"
+    | Mappings -> meth, Some "_mappings"
+  in
+  let path = Some index :: path :: [] in
+  match%lwt request ~verbose ?body meth host path [] id with
+  | Error error -> fail_lwt "index error:\n%s" error
+  | Ok result -> Lwt_io.printl result
+
 type nodes_args = {
   host : string;
   check_nodes : string list;
@@ -1484,6 +1521,34 @@ let health_tool =
   let man = [] in
   info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let index_tool =
+  let open Common_args in
+  let%map common_args = common_args
+  and host = host
+  and index = index
+  and action =
+    Arg.(value & vflag (Get : index_action) [
+      Create, info [ "c"; "create"; ] ~doc:"create index";
+      Delete, info [ "d"; "delete"; ] ~doc:"delete index";
+      Mappings, info [ "m"; "mappings"; ] ~doc:"operate on index mappings";
+      Settings, info [ "s"; "settings"; ] ~doc:"operator on index settings";
+    ])
+  and body = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY" ~doc:"body to put") in
+  index_tool common_args {
+    host;
+    index;
+    action;
+    body;
+  }
+
+let index_tool =
+  index_tool,
+  let open Term in
+  let doc = "index" in
+  let exits = default_exits in
+  let man = [] in
+  info "index" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let nodes_tool =
   let open Common_args in
   let%map common_args = common_args
@@ -1725,6 +1790,7 @@ let tools = [
   flush_tool;
   get_tool;
   health_tool;
+  index_tool;
   nodes_tool;
   put_tool;
   recovery_tool;
