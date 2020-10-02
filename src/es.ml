@@ -755,6 +755,8 @@ type index_action =
   | Get
   | Create
   | Delete
+  | Open
+  | Close
   | Settings
   | Mappings
 
@@ -780,6 +782,8 @@ let index_tool { verbose; _ } {
     | Get -> `GET, None
     | Create -> `PUT, None
     | Delete -> `DELETE, None
+    | Open -> `POST, Some "_open"
+    | Close -> `POST, Some "_close"
     | Settings -> meth, Some "_settings"
     | Mappings -> meth, Some "_mappings"
   in
@@ -1528,8 +1532,10 @@ let index_tool =
   and index = index
   and action =
     Arg.(value & vflag (Get : index_action) [
-      Create, info [ "c"; "create"; ] ~doc:"create index";
-      Delete, info [ "d"; "delete"; ] ~doc:"delete index";
+      Create, info [ "C"; "create"; ] ~doc:"create index";
+      Delete, info [ "D"; "delete"; ] ~doc:"delete index";
+      Open, info [ "o"; "open"; ] ~doc:"open index";
+      Close, info [ "c"; "close"; ] ~doc:"close index";
       Mappings, info [ "m"; "mappings"; ] ~doc:"operate on index mappings";
       Settings, info [ "s"; "settings"; ] ~doc:"operator on index settings";
     ])
