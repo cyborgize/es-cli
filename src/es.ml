@@ -33,9 +33,16 @@ let json_body_opt = function
   | None -> None
 
 let make_url host path args =
-  let args = List.filter_map (function name, Some value -> Some (name, value) | _ -> None) args in
+  let args =
+    List.filter_map begin function
+      | name, Some Some value -> Some (String.concat "=" Web.[ urlencode name; urlencode value; ])
+      | name, Some None -> Some (Web.urlencode name)
+      | _name, None -> None
+    end args
+  in
+  let args = match args with [] -> [] | _ -> [ String.concat "&" args; ] in
   let path = String.concat "/" ("" :: List.filter_map id path) in
-  let path = String.concat "?" (path :: match args with [] -> [] | _ -> [ Web.make_url_args args; ]) in
+  let path = String.concat "?" (path :: args) in
   String.concat "" [ host; path; ]
 
 let request ?verbose ?body action host path args =
@@ -495,16 +502,19 @@ let alias { verbose; _ } {
 type cat_args = {
   host : string;
   query : string list;
+  args : (string * string option) list;
 }
 
 let cat ({ verbose; _ } as _common_args) {
     host;
     query;
+    args;
   } =
   let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
+  let args = List.map (fun (k, v) -> k, Some v) args in
   Lwt_main.run @@
-  match%lwt request ~verbose `GET host (Some "_cat" :: List.map some query) [] id with
+  match%lwt request ~verbose `GET host (Some "_cat" :: List.map some query) args id with
   | Error error -> fail_lwt "cat error:\n%s" error
   | Ok result -> Lwt_io.print result
 
@@ -543,16 +553,18 @@ let count ({ verbose; _ } as _common_args) {
   let { Common.host; _ } = Common.get_cluster config host in
   Lwt_main.run @@
   let body_query = Option.map get_body_query_file body_query in
-  let args = [
-    "timeout", timeout;
-    "routing", routing;
-    "preference", csv ~sep:"|" preference;
-    "analyzer", analyzer;
-    "analyze_wildcard", flag analyze_wildcard;
-    "df", default_field;
-    "default_operator", default_operator;
-    "q", query;
-  ] in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "timeout", timeout;
+      "routing", routing;
+      "preference", csv ~sep:"|" preference;
+      "analyzer", analyzer;
+      "analyze_wildcard", flag analyze_wildcard;
+      "df", default_field;
+      "default_operator", default_operator;
+      "q", query;
+    ]
+  in
   let body_query = match body_query with Some query -> Some (JSON query) | None -> None in
   let count () =
     match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_count"; ] args id with
@@ -605,10 +617,12 @@ let delete ({ verbose; es_version; _ } as common_args) {
     in
     `POST, Some (NDJSON body), [ index; doc_type; Some "_bulk"; ]
   in
-  let args = [
-    "timeout", timeout;
-    "routing", routing;
-  ] in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "timeout", timeout;
+      "routing", routing;
+    ]
+  in
   match%lwt request ~verbose ?body action host path args id with
   | Error response -> Lwt_io.eprintl response
   | Ok response -> Lwt_io.printl response
@@ -632,10 +646,12 @@ let flush { verbose; _ } {
   let { Common.host; _ } = Common.get_cluster config host in
   let bool' v = function true -> Some v | false -> None in
   let bool = bool' "true" in
-  let args = [
-    "force", bool force;
-    "wait_if_ongoing", bool wait;
-  ] in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "force", bool force;
+      "wait_if_ongoing", bool wait;
+    ]
+  in
   let path = [ csv indices; Some "_flush"; bool' "synced" synced; ] in
   Lwt_main.run @@
   match%lwt request ~verbose `POST host path args id with
@@ -703,13 +719,15 @@ let get ({ verbose; es_version; _ } as common_args) {
     in
     Some (JSON (Elastic_j.string_of_multiget { docs; ids; })), path, unformat
   in
-  let args = [
-    "timeout", timeout;
-    (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
-    "_source_excludes", csv source_excludes;
-    "routing", routing;
-    "preference", csv ~sep:"|" preference;
-  ] in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "timeout", timeout;
+      (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
+      "_source_excludes", csv source_excludes;
+      "routing", routing;
+      "preference", csv ~sep:"|" preference;
+    ]
+  in
   let request unformat = request ~verbose ?body `GET host path args unformat in
   match format with
   | [] ->
@@ -758,7 +776,7 @@ let health { verbose; _ } {
         "pending_tasks"; "max_task_wait_time";
         "active_shards_percent";
       ] in
-      let args = [ "h", Some (String.concat "," columns); ] in
+      let args = [ "h", Some (Some (String.concat "," columns)); ] in
       match%lwt request ~verbose `GET host [ Some "_cat"; Some "health"; ] args id with
       | Error error -> Lwt.return (i, sprintf "%s error %s\n" host error)
       | Ok result -> Lwt.return (i, sprintf "%s %s" host result)
@@ -884,7 +902,7 @@ let put ({ verbose; es_version; _ } as common_args) {
     | Some doc_type -> Lwt.return doc_type
     | None -> Exn_lwt.fail "DOC_TYPE is not provided"
   in
-  let args = [ "routing", routing; ] in
+  let args = [ "routing", Option.map some routing; ] in
   let%lwt body = match body with Some body -> Lwt.return body | None -> Lwt_io.read Lwt_io.stdin in
   let action = if doc_id <> None then `PUT else `POST in
   match%lwt request ~verbose ~body:(JSON body) action host [ Some index; Some doc_type; doc_id; ] args id with
@@ -1023,25 +1041,27 @@ let search ({ verbose; es_version; _ } as common_args) {
     get_es_version_config common_args host es_version config version
   in
   let body_query = Option.map get_body_query_file body_query in
-  let args = [
-    "timeout", timeout;
-    "size", int size;
-    "from", int from;
-    "track_total_hits", track_total_hits;
-    "sort", csv sort;
-    (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
-    "_source_excludes", csv source_excludes;
-    "stored_fields", csv fields;
-    "routing", routing;
-    "preference", csv ~sep:"|" preference;
-    "explain", flag explain;
-    "scroll", scroll;
-    "analyzer", analyzer;
-    "analyze_wildcard", flag analyze_wildcard;
-    "df", default_field;
-    "default_operator", default_operator;
-    "q", query;
-  ] in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "timeout", timeout;
+      "size", int size;
+      "from", int from;
+      "track_total_hits", track_total_hits;
+      "sort", csv sort;
+      (if source_excludes = [] then "_source" else "_source_includes"), csv source_includes;
+      "_source_excludes", csv source_excludes;
+      "stored_fields", csv fields;
+      "routing", routing;
+      "preference", csv ~sep:"|" preference;
+      "explain", flag explain;
+      "scroll", scroll;
+      "analyzer", analyzer;
+      "analyze_wildcard", flag analyze_wildcard;
+      "df", default_field;
+      "default_operator", default_operator;
+      "q", query;
+    ]
+  in
   let format =
     List.map (List.map map_of_hit_format) format |>
     List.concat
@@ -1231,10 +1251,12 @@ module Settings = struct
       | [], _ :: _ -> Lwt.return_unit
       | _ ->
       let include_defaults = include_defaults || type_ = Some Defaults in
-      let args = [
-        "flat_settings", Some "true";
-        "include_defaults", flag include_defaults;
-      ] in
+      let args =
+        List.map (fun (k, v) -> k, Option.map some v) [
+          "flat_settings", Some "true";
+          "include_defaults", flag include_defaults;
+        ]
+      in
       match%lwt request ~verbose `GET host path args id with
       | Error error -> fail_lwt "settings error:\n%s" error
       | Ok result ->
@@ -1401,13 +1423,28 @@ let alias_tool =
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let cat_tool =
+  let arg =
+    let parse x =
+      match Stre.splitc x '=' with
+      | key, value -> Ok (key, Some value)
+      | exception Not_found -> Ok (x, None)
+    in
+    let print fmt (key, value) =
+      match value with
+      | Some value -> Format.fprintf fmt "%s=%s" key value
+      | None -> Format.fprintf fmt "%s" key
+    in
+    Arg.conv (parse, print)
+  in
   let open Common_args in
   let%map common_args = common_args
   and host = host
-  and query = Arg.(value & pos_right 0 string [] & info [] ~docv:"PATH[ SUBPATH1[ SUBPATH2]]" ~doc:"path components") in
+  and query = Arg.(value & pos_right 0 string [] & info [] ~docv:"PATH[ SUBPATH1[ SUBPATH2]]" ~doc:"path components")
+  and args = Arg.(value & opt_all arg [] & info [ "a"; "arg"; ] ~docv:"KEY[=VALUE]" ~doc:"add &key[=value] to the request") in
   cat common_args {
     host;
     query;
+    args;
   }
 
 let cat_tool =
