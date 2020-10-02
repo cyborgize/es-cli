@@ -492,6 +492,22 @@ let alias { verbose; _ } {
   | Error error -> fail_lwt "alias error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
+type cat_args = {
+  host : string;
+  query : string list;
+}
+
+let cat ({ verbose; _ } as _common_args) {
+    host;
+    query;
+  } =
+  let config = Common.load_config () in
+  let { Common.host; _ } = Common.get_cluster config host in
+  Lwt_main.run @@
+  match%lwt request ~verbose `GET host (Some "_cat" :: List.map some query) [] id with
+  | Error error -> fail_lwt "cat error:\n%s" error
+  | Ok result -> Lwt_io.print result
+
 type count_args = {
   host : string;
   index : string;
@@ -1384,6 +1400,24 @@ let alias_tool =
   let man = [] in
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
+let cat_tool =
+  let open Common_args in
+  let%map common_args = common_args
+  and host = host
+  and query = Arg.(value & pos_right 0 string [] & info [] ~docv:"PATH[ SUBPATH1[ SUBPATH2]]" ~doc:"path components") in
+  cat common_args {
+    host;
+    query;
+  }
+
+let cat_tool =
+  cat_tool,
+  let open Term in
+  let doc = "cat" in
+  let exits = default_exits in
+  let man = [] in
+  info "cat" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+
 let count_tool =
   let open Common_args in
   let%map common_args = common_args
@@ -1791,6 +1825,7 @@ let settings_tool =
 
 let tools = [
   alias_tool;
+  cat_tool;
   count_tool;
   delete_tool;
   flush_tool;
