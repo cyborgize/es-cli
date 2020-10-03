@@ -455,6 +455,8 @@ module Common_args = struct
 
   let preference = Arg.(value & opt_all string [] & info [ "p"; "preference"; ] ~doc:"preference")
 
+  let sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort")
+
   let format =
     let parse format =
       match hit_format_of_string format with
@@ -492,27 +494,70 @@ let alias { verbose; _ } {
     | [] -> `GET, None
     | actions ->
     let actions = List.map (fun { action; index; alias; } -> [ action, { Elastic_t.index; alias; }; ]) actions in
-    `POST, Some (JSON (Elastic_j.string_of_aliases { Elastic_t.actions; }))
+    `POST, Some (JSON (Elastic_j.string_of_aliases { Elastic_t.actions; }) : content_type)
   in
   Lwt_main.run @@
   match%lwt request ~verbose ?body action host [ Some "_aliases"; ] [] id with
   | Error error -> fail_lwt "alias error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
+type cat_format =
+  | Text
+  | JSON
+  | Smile
+  | YAML
+  | CBOR
+
+let string_of_cat_format = function
+  | Text -> "text"
+  | JSON -> "json"
+  | Smile -> "smile"
+  | YAML -> "yaml"
+  | CBOR -> "cbor"
+
 type cat_args = {
   host : string;
   query : string list;
+  help : bool;
+  headers : bool;
+  columns : string list;
+  sort : string list;
+  format : cat_format option;
+  time_units : string option;
+  size_units : string option;
+  byte_units : string option;
   args : (string * string option) list;
 }
 
 let cat ({ verbose; _ } as _common_args) {
     host;
     query;
+    help;
+    headers;
+    columns;
+    sort;
+    format;
+    time_units;
+    size_units;
+    byte_units;
     args;
   } =
   let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
-  let args = List.map (fun (k, v) -> k, Some v) args in
+  let flag name ?value x l = if x then (name, Some value) :: l else l in
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "h", csv columns;
+      "s", csv sort;
+      "time", time_units;
+      "size", size_units;
+      "bytes", byte_units;
+      "format", Option.map string_of_cat_format format;
+    ] @
+    flag "help" help @@
+    flag "v" headers @@
+    List.map (fun (k, v) -> k, Some v) args
+  in
   Lwt_main.run @@
   match%lwt request ~verbose `GET host (Some "_cat" :: List.map some query) args id with
   | Error error -> fail_lwt "cat error:\n%s" error
@@ -565,7 +610,7 @@ let count ({ verbose; _ } as _common_args) {
       "q", query;
     ]
   in
-  let body_query = match body_query with Some query -> Some (JSON query) | None -> None in
+  let body_query = match body_query with Some query -> Some (JSON query : content_type) | None -> None in
   let count () =
     match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_count"; ] args id with
     | Error error -> fail_lwt "count error:\n%s" error
@@ -717,7 +762,7 @@ let get ({ verbose; es_version; _ } as common_args) {
       let { Elastic_t.docs; } = Elastic_j.docs_of_string (Elastic_j.read_option_hit J.read_json) x in
       docs
     in
-    Some (JSON (Elastic_j.string_of_multiget { docs; ids; })), path, unformat
+    Some (JSON (Elastic_j.string_of_multiget { docs; ids; }) : content_type), path, unformat
   in
   let args =
     List.map (fun (k, v) -> k, Option.map some v) [
@@ -810,7 +855,7 @@ let index_tool { verbose; _ } {
   let config = Common.load_config () in
   let { Common.host; _ } = Common.get_cluster config host in
   Lwt_main.run @@
-  let (meth, body) = match body with Some body -> `PUT, Some (JSON body) | None -> `GET, None in
+  let (meth, body) = match body with Some body -> `PUT, Some (JSON body : content_type) | None -> `GET, None in
   let (meth, path) =
     match action with
     | Get -> `GET, None
@@ -1078,7 +1123,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     let body = slice :: List.filter (function "slice", _ -> false | _ -> true) body in
     Some (Util_j.string_of_assoc body)
   in
-  let body_query = match body_query with Some query -> Some (JSON query) | None -> None in
+  let body_query = match body_query with Some query -> Some (JSON query : content_type) | None -> None in
   let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
   let rec search () =
     match%lwt request ~verbose ?body:body_query `POST host [ Some index; doc_type; Some "_search"; ] args id with
@@ -1089,7 +1134,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     | show_count, format, scroll, retry ->
     let scroll_path = [ Some "_search"; Some "scroll"; ] in
     let clear_scroll' scroll_id =
-      let clear_scroll = JSON (Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; }) in
+      let clear_scroll = (JSON (Elastic_j.string_of_clear_scroll { Elastic_t.scroll_id = [ scroll_id; ]; }) : content_type) in
       match%lwt request ~verbose ~body:clear_scroll `DELETE host scroll_path [] id with
       | Error error -> fail_lwt "clear scroll error:\n%s" error
       | Ok _ok -> Lwt.return_unit
@@ -1147,7 +1192,7 @@ let search ({ verbose; es_version; _ } as common_args) {
       match hits, scroll, scroll_id with
       | [], _, _ | _, None, _ | _, _, None -> clear_scroll scroll_id
       | _, Some scroll, Some scroll_id ->
-      let scroll = JSON (Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; }) in
+      let scroll = (JSON (Elastic_j.string_of_scroll { Elastic_t.scroll; scroll_id; }) : content_type) in
       match%lwt request ~verbose ~body:scroll `POST host scroll_path [] id with
       | Error error ->
         let%lwt () = Lwt_io.eprintlf "scroll error:\n%s" error in
@@ -1423,7 +1468,18 @@ let alias_tool =
   info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let cat_tool =
-  let arg =
+  let conv_format =
+    let parse = function
+      | "text" -> Ok Text
+      | "json" -> Ok JSON
+      | "smile" -> Ok Smile
+      | "yaml" -> Ok YAML
+      | "cbor" -> Ok CBOR
+      | x -> Error (`Msg x)
+    in
+    Arg.conv (parse, (fun fmt x -> Format.fprintf fmt "%s" (string_of_cat_format x)))
+  in
+  let conv_arg =
     let parse x =
       match Stre.splitc x '=' with
       | key, value -> Ok (key, Some value)
@@ -1440,10 +1496,26 @@ let cat_tool =
   let%map common_args = common_args
   and host = host
   and query = Arg.(value & pos_right 0 string [] & info [] ~docv:"PATH[ SUBPATH1[ SUBPATH2]]" ~doc:"path components")
-  and args = Arg.(value & opt_all arg [] & info [ "a"; "arg"; ] ~docv:"KEY[=VALUE]" ~doc:"add &key[=value] to the request") in
+  and help = Arg.(value & flag & info [ "I"; "H"; ] ~doc:"show columns help")
+  and headers = Arg.(value & flag & info [ "h"; "headers"; ] ~doc:"show headers")
+  and columns = Arg.(value & opt_all string [] & info [ "i"; "columns"; ] ~doc:"include columns")
+  and sort = sort
+  and format = Arg.(value & opt (some conv_format) None & info [ "f"; "format"; ] ~doc:"output format")
+  and time_units = Arg.(value & opt (some string) None & info [ "T"; "time-units"; ] ~doc:"time units")
+  and size_units = Arg.(value & opt (some string) None & info [ "S"; "size-units"; ] ~doc:"size units")
+  and byte_units = Arg.(value & opt (some string) None & info [ "B"; "byte-units"; ] ~doc:"byte units")
+  and args = Arg.(value & opt_all conv_arg [] & info [ "a"; "arg"; ] ~docv:"KEY[=VALUE]" ~doc:"add arbitrary &key[=value] to the request") in
   cat common_args {
     host;
     query;
+    help;
+    headers;
+    columns;
+    sort;
+    format;
+    time_units;
+    size_units;
+    byte_units;
     args;
   }
 
@@ -1754,7 +1826,7 @@ let search_tool =
   and format = format
   and size = Arg.(value & opt (some int) None & info [ "n"; "size"; ] ~doc:"size")
   and from = Arg.(value & opt (some int) None & info [ "o"; "from"; ] ~doc:"from")
-  and sort = Arg.(value & opt_all string [] & info [ "s"; "sort"; ] ~doc:"sort")
+  and sort = sort
   and fields = Arg.(value & opt_all string [] & info [ "F"; "fields"; ] ~doc:"fields")
   and scroll = Arg.(value & opt (some string) None & info [ "S"; "scroll"; ] ~doc:"scroll")
   and slice_max = Arg.(value & opt (some int) None & info [ "N"; "slice-max"; ] ~doc:"slice_max")
