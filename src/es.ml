@@ -470,6 +470,34 @@ module Common_args = struct
 
   let format = Arg.(value & opt_all format [] & info [ "f"; "format"; ] ~doc:"map hits according to specified format (hit|id|source)")
 
+  type expand_wildcards =
+    | All
+    | Open
+    | Closed
+    | Hidden
+    | None_
+
+  let string_of_expand_wildcards = function
+    | All -> "all"
+    | Open -> "open"
+    | Closed -> "closed"
+    | Hidden -> "hidden"
+    | None_ -> "none"
+
+  let expand_wildcards =
+    let conv_expand_wildcards =
+      let parse = function
+        | "all" -> Ok All
+        | "open" -> Ok Open
+        | "closed" -> Ok Closed
+        | "hidden" -> Ok Hidden
+        | "none" -> Ok None_
+        | x -> Error (`Msg x)
+      in
+      Arg.conv (parse, (fun fmt x -> Format.fprintf fmt "%s" (string_of_expand_wildcards x)))
+    in
+    Arg.(value & opt (some conv_expand_wildcards) None & info [ "w"; "expand-wildcards"; ] ~doc:"expand_wildcards")
+
 end (* Common_args *)
 
 type alias_action = {
@@ -526,6 +554,7 @@ type cat_args = {
   time_units : string option;
   size_units : string option;
   byte_units : string option;
+  expand_wildcards : Common_args.expand_wildcards option;
   args : (string * string option) list;
 }
 
@@ -540,6 +569,7 @@ let cat ({ verbose; _ } as _common_args) {
     time_units;
     size_units;
     byte_units;
+    expand_wildcards;
     args;
   } =
   let config = Common.load_config () in
@@ -553,6 +583,7 @@ let cat ({ verbose; _ } as _common_args) {
       "size", size_units;
       "bytes", byte_units;
       "format", Option.map string_of_cat_format format;
+      "expand_wildcards", Option.map Common_args.string_of_expand_wildcards expand_wildcards;
     ] @
     flag "help" help @@
     flag "v" headers @@
@@ -845,6 +876,7 @@ type index_args = {
   host : string;
   index : string;
   action : index_action;
+  expand_wildcards : Common_args.expand_wildcards option;
   body : string option;
 }
 
@@ -852,6 +884,7 @@ let index_tool { verbose; _ } {
     host;
     index;
     action;
+    expand_wildcards;
     body;
   } =
   let config = Common.load_config () in
@@ -871,7 +904,12 @@ let index_tool { verbose; _ } {
     | Mappings -> meth, Some "_mappings"
   in
   let path = Some index :: path :: [] in
-  match%lwt request ~verbose ?body meth host path [] id with
+  let args =
+    List.map (fun (k, v) -> k, Option.map some v) [
+      "expand_wildcards", Option.map Common_args.string_of_expand_wildcards expand_wildcards;
+    ]
+  in
+  match%lwt request ~verbose ?body meth host path args id with
   | Error error -> fail_lwt "index error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
@@ -1508,6 +1546,7 @@ let cat_tool =
   and time_units = Arg.(value & opt (some string) None & info [ "T"; "time-units"; ] ~doc:"time units")
   and size_units = Arg.(value & opt (some string) None & info [ "S"; "size-units"; ] ~doc:"size units")
   and byte_units = Arg.(value & opt (some string) None & info [ "B"; "byte-units"; ] ~doc:"byte units")
+  and expand_wildcards = expand_wildcards
   and args = Arg.(value & opt_all conv_arg [] & info [ "a"; "arg"; ] ~docv:"KEY[=VALUE]" ~doc:"add arbitrary &key[=value] to the request") in
   cat common_args {
     host;
@@ -1520,6 +1559,7 @@ let cat_tool =
     time_units;
     size_units;
     byte_units;
+    expand_wildcards;
     args;
   }
 
@@ -1688,11 +1728,13 @@ let index_tool =
       Mappings, info [ "m"; "mappings"; ] ~doc:"operate on index mappings";
       Settings, info [ "s"; "settings"; ] ~doc:"operator on index settings";
     ])
+  and expand_wildcards = expand_wildcards
   and body = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY" ~doc:"body to put") in
   index_tool common_args {
     host;
     index;
     action;
+    expand_wildcards;
     body;
   }
 
