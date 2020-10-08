@@ -836,6 +836,8 @@ type index_action =
   | Delete
   | Open
   | Close
+  | Freeze
+  | Unfreeze
   | Settings
   | Mappings
 
@@ -863,6 +865,8 @@ let index_tool { verbose; _ } {
     | Delete -> `DELETE, None
     | Open -> `POST, Some "_open"
     | Close -> `POST, Some "_close"
+    | Freeze -> `POST, Some "_freeze"
+    | Unfreeze -> `POST, Some "_unfreeze"
     | Settings -> meth, Some "_settings"
     | Mappings -> meth, Some "_mappings"
   in
@@ -1679,6 +1683,8 @@ let index_tool =
       Delete, info [ "D"; "delete"; ] ~doc:"delete index";
       Open, info [ "o"; "open"; ] ~doc:"open index";
       Close, info [ "c"; "close"; ] ~doc:"close index";
+      Freeze, info [ "f"; "freeze"; ] ~doc:"freeze index";
+      Unfreeze, info [ "u"; "unfreeze"; ] ~doc:"unfreeze index";
       Mappings, info [ "m"; "mappings"; ] ~doc:"operate on index mappings";
       Settings, info [ "s"; "settings"; ] ~doc:"operator on index settings";
     ])
