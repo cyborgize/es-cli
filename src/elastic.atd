@@ -127,7 +127,7 @@ type aliases = {
 
 type alias_action_name = [
   | Add <json name="add">
-  | Remove <json anme="remove">
+  | Remove <json name="remove">
 ]
 
 type alias_action_name' = string wrap <ocaml
