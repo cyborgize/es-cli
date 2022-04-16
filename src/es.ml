@@ -1064,6 +1064,14 @@ let refresh { verbose; _ } {
   | Error error -> fail_lwt "refresh error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
+type aggregation_terms = {
+  field : string;
+  size : int option;
+}
+
+type aggregation =
+  | Terms of aggregation_terms
+
 type search_args = {
   host : string;
   index : string;
@@ -1082,6 +1090,7 @@ type search_args = {
   slice_max : int option;
   query : string option;
   body_query : string option;
+  aggregations : (string * aggregation) list;
   analyzer : string option;
   analyze_wildcard : bool;
   default_field : string option;
@@ -1111,6 +1120,7 @@ let search ({ verbose; es_version; _ } as common_args) {
     slice_max;
     query;
     body_query;
+    aggregations;
     analyzer;
     analyze_wildcard;
     default_field;
@@ -1164,6 +1174,25 @@ let search ({ verbose; es_version; _ } as common_args) {
     let body = Util_j.assoc_of_string body in
     let body = slice :: List.filter (function "slice", _ -> false | _ -> true) body in
     Some (Util_j.string_of_assoc body)
+  in
+  let body_query =
+    match aggregations with
+    | [] -> body_query
+    | _ ->
+    match body_query with
+    | Some _ -> Exn.fail "providing query body and aggregations at the same time is not supported"
+    | None ->
+    let aggregations =
+      List.map begin fun (name, aggregation) ->
+        let aggregation =
+          match aggregation with
+          | Terms { field; size; } ->
+          `Assoc (("field", `String field) :: match size with Some size -> [ "size", `Int size; ] | None -> [])
+        in
+        name, aggregation
+      end aggregations
+    in
+    Some (Util_j.string_of_assoc [ "aggs", `Assoc aggregations; ])
   in
   let body_query = match body_query with Some query -> Some (JSON query : content_type) | None -> None in
   let htbl = Hashtbl.create (if retry then Option.default 10 size else 0) in
@@ -1863,6 +1892,44 @@ let refresh_tool =
   info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
 
 let search_tool =
+  let aggregation =
+    let module Let_syntax = struct let map ~f = function Ok x -> f x | Error _ as error -> error end in
+    let parse_terms name = function
+      | [] -> Error (`Msg (sprintf "terms aggregation %s missing field" name))
+      | field :: params ->
+      let agg = { field; size = None; } in
+      let%map (agg, params) =
+        match params with
+        | [] -> Ok (agg, [])
+        | size :: params ->
+        let%map size = Arg.(conv_parser int) size in
+        Ok ({ agg with size = Some size; }, params)
+      in
+      match params with
+      | _ :: _ -> Error (`Msg (sprintf "terms aggregation %s unknown extra parameters: %s" name (String.concat ":" params)))
+      | [] -> Ok (Terms agg)
+    in
+    let parse agg =
+      match Stre.nsplitc agg ':' with
+      | [] -> assert false
+      | name :: [] -> Error (`Msg (sprintf "aggregation %s missing type" name))
+      | name :: type_ :: params ->
+      let%map agg =
+        match type_ with
+        | "t" | "term" | "terms" -> parse_terms name params
+        | agg -> Error (`Msg (sprintf "unknown aggregation type: %s" agg))
+      in
+      Ok (name, agg)
+    in
+    let print fmt (name, agg) =
+      let params =
+        match agg with
+        | Terms { field; size } -> name :: field :: (match size with Some size -> [ string_of_int size; ] | None -> [])
+      in
+      Format.fprintf fmt "%s" (String.concat ":" params)
+    in
+    Arg.(conv (parse, print))
+  in
   let open Common_args in
   let%map common_args = common_args
   and host = host
@@ -1883,6 +1950,7 @@ let search_tool =
   and slice_id = Arg.(value & opt (some int) None & info [ "I"; "slice-id"; ] ~doc:"slice_id")
   and query = Arg.(value & opt (some string) None & info [ "q"; "query"; ] ~doc:"query using query_string query")
   and body_query = Arg.(value & pos 2 (some string) None & info [] ~docv:"BODY_QUERY" ~doc:"body query")
+  and aggregations = Arg.(value & opt_all aggregation [] & info [ "a"; "aggregation"; ] ~doc:"add simple aggregation")
   and analyzer = Arg.(value & opt (some string) None & info [ "A"; "analyzer"; ] ~doc:"analyzer to be used for query_string query")
   and analyze_wildcard = Arg.(value & flag & info [ "W"; "analyze-wildcard"; ] ~doc:"analyze wildcard and prefix queries in query_string query")
   and default_field = Arg.(value & opt (some string) None & info [ "d"; "default-field"; ] ~doc:"default field to be used for query_string query")
@@ -1909,6 +1977,7 @@ let search_tool =
     slice_max;
     query;
     body_query;
+    aggregations;
     analyzer;
     analyze_wildcard;
     default_field;
