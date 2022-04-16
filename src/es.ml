@@ -1429,6 +1429,8 @@ end (* Settings *)
 
 open Cmdliner
 
+[@@@alert "-deprecated"]
+
 module Let_syntax = struct
 
   let map ~f t = Term.(const f $ t)
