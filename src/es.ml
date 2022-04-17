@@ -1064,16 +1064,58 @@ let refresh { verbose; _ } {
   | Error error -> fail_lwt "refresh error:\n%s" error
   | Ok result -> Lwt_io.printl result
 
+type aggregation_field = {
+  field : string;
+}
+
+type aggregation_stats = {
+  field : string;
+  missing : string option;
+}
+
+type aggregation_cardinality = {
+  common : aggregation_stats;
+  precision_threshold : int option;
+}
+
+type aggregation_extended_stats = {
+  common : aggregation_stats;
+  sigma : float option;
+}
+
+type aggregation_string_stats = {
+  common : aggregation_stats;
+  show_distribution : bool option;
+}
+
 type aggregation_terms = {
   field : string;
   size : int option;
 }
 
 type aggregation =
+  | Avg of aggregation_stats
+  | Cardinality of aggregation_cardinality
+  | ExtendedStats of aggregation_extended_stats
+  | Max of aggregation_stats
+  | Min of aggregation_stats
+  | Stats of aggregation_stats
+  | Sum of aggregation_stats
+  | StringStats of aggregation_string_stats
   | Terms of aggregation_terms
+  | ValueCount of aggregation_field
 
 let string_of_aggregation = function
+  | Avg _ -> "avg"
+  | Cardinality _ -> "cardinality"
+  | ExtendedStats _ -> "extended_stats"
+  | Max _ -> "max"
+  | Min _ -> "min"
+  | Stats _ -> "stats"
+  | Sum _ -> "sum"
+  | StringStats _ -> "string_stats"
   | Terms _ -> "terms"
+  | ValueCount _ -> "value_count"
 
 type search_args = {
   host : string;
@@ -1187,13 +1229,33 @@ let search ({ verbose; es_version; _ } as common_args) {
     | None ->
     let aggregations =
       let cons name map hd tl = match hd with Some hd -> (name, map hd) :: tl | None -> tl in
+      let bool x = `Bool x in
+      let float x = `Float x in
       let int x = `Int x in
+      let string x = `String x in
+      let metrics { field; missing; } params =
+        let params = cons "missing" string missing params in
+        ("field", `String field) :: params
+      in
       List.map begin fun (name, aggregation) ->
         let aggregation_params =
           match aggregation with
+          | Avg params | Max params | Min params | Stats params | Sum params ->
+            metrics params []
+          | Cardinality { common; precision_threshold; } ->
+            let params = cons "precision_threshold" int precision_threshold [] in
+            metrics common params
+          | ExtendedStats { common; sigma; } ->
+            let params = cons "sigma" float sigma [] in
+            metrics common params
+          | StringStats { common; show_distribution; } ->
+            let params = cons "show_distribution" bool show_distribution [] in
+            metrics common params
           | Terms { field; size; } ->
             let params = cons "size" int size [] in
             ("field", `String field) :: params
+          | ValueCount { field; } ->
+            ("field", `String field) :: []
         in
         name, `Assoc [ string_of_aggregation aggregation, `Assoc aggregation_params; ]
       end aggregations
@@ -1910,7 +1972,34 @@ let search_tool =
       let parse = Arg.conv_parser conv in
       fun x -> Option.map_default (fun x -> let%map x = parse x in Ok (Some x)) (Ok None) x
     in
+    let parse_bool = parse Arg.bool in
+    let parse_float = parse Arg.float in
     let parse_int = parse Arg.int in
+    let parse_metrics name = function
+      | [] -> missing_field name
+      | field :: params ->
+      let%bind (missing, params) = params in
+      let agg = { field; missing; } in
+      Ok (agg, params)
+    in
+    let parse_cardinality name params =
+      let%map (common, params) = parse_metrics name params in
+      let%bind (precision_threshold, params) = params in
+      let%map precision_threshold = parse_int precision_threshold in
+      Ok (Cardinality { common; precision_threshold; }, params)
+    in
+    let parse_extended_stats name params =
+      let%map (common, params) = parse_metrics name params in
+      let%bind (sigma, params) = params in
+      let%map sigma = parse_float sigma in
+      Ok (ExtendedStats { common; sigma; }, params)
+    in
+    let parse_string_stats name params =
+      let%map (common, params) = parse_metrics name params in
+      let%bind (show_distribution, params) = params in
+      let%map show_distribution = parse_bool show_distribution in
+      Ok (StringStats { common; show_distribution; }, params)
+    in
     let parse_terms name = function
       | [] -> missing_field name
       | field :: params ->
@@ -1919,6 +2008,10 @@ let search_tool =
       let agg = { field; size; } in
       Ok (Terms agg, params)
     in
+    let parse_field name = function
+      | [] -> missing_field name
+      | field :: params -> Ok ({ field; }, params)
+    in
     let parse agg =
       match Stre.nsplitc agg ':' with
       | [] -> assert false
@@ -1926,7 +2019,16 @@ let search_tool =
       | name :: type_ :: params ->
       let%map (agg, params) =
         match type_ with
+        | "a" | "avg" -> let%map (agg, params) = parse_metrics name params in Ok (Avg agg, params)
+        | "u" | "cardinal" | "cardinality" -> parse_cardinality name params
+        | "e" | "est" | "extended_stats" -> parse_extended_stats name params
+        | "min" -> let%map (agg, params) = parse_metrics name params in Ok (Min agg, params)
+        | "max" -> let%map (agg, params) = parse_metrics name params in Ok (Max agg, params)
+        | "st" | "stats" -> let%map (agg, params) = parse_metrics name params in Ok (Stats agg, params)
+        | "sst" | "string_stats" -> parse_string_stats name params
+        | "s" | "sum" -> let%map (agg, params) = parse_metrics name params in Ok (Sum agg, params)
         | "t" | "terms" -> parse_terms name params
+        | "n" | "count" | "value_count" -> let%map (agg, params) = parse_field name params in Ok (ValueCount agg, params)
         | agg -> Error (`Msg (sprintf "unknown aggregation type: %s" agg))
       in
       match params with
@@ -1939,8 +2041,25 @@ let search_tool =
       let cons map hd tl = match hd with Some hd -> map hd :: tl | None -> tl in
       let params =
         match agg with
+        | Avg params | Max params | Min params | Stats params | Sum params ->
+          let { field; missing } = params in
+          name :: field :: cons id missing []
+        | Cardinality { common = { field; missing; }; precision_threshold; } ->
+          let params = cons string_of_int precision_threshold [] in
+          let params = cons id missing params in
+          name :: field :: params
+        | ExtendedStats { common = { field; missing; }; sigma; } ->
+          let params = cons string_of_float sigma [] in
+          let params = cons id missing params in
+          name :: field :: params
+        | StringStats { common = { field; missing; }; show_distribution; } ->
+          let params = cons string_of_bool show_distribution [] in
+          let params = cons id missing params in
+          name :: field :: params
         | Terms { field; size } ->
           name :: field :: cons string_of_int size []
+        | ValueCount { field; } ->
+          name :: field :: []
       in
       Format.fprintf fmt "%s" (String.concat ":" params)
     in
