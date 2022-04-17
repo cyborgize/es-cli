@@ -1072,6 +1072,9 @@ type aggregation_terms = {
 type aggregation =
   | Terms of aggregation_terms
 
+let string_of_aggregation = function
+  | Terms _ -> "terms"
+
 type search_args = {
   host : string;
   index : string;
@@ -1183,13 +1186,16 @@ let search ({ verbose; es_version; _ } as common_args) {
     | Some _ -> Exn.fail "providing query body and aggregations at the same time is not supported"
     | None ->
     let aggregations =
+      let cons name map hd tl = match hd with Some hd -> (name, map hd) :: tl | None -> tl in
+      let int x = `Int x in
       List.map begin fun (name, aggregation) ->
-        let aggregation =
+        let aggregation_params =
           match aggregation with
           | Terms { field; size; } ->
-          `Assoc (("field", `String field) :: match size with Some size -> [ "size", `Int size; ] | None -> [])
+            let params = cons "size" int size [] in
+            ("field", `String field) :: params
         in
-        name, aggregation
+        name, `Assoc [ string_of_aggregation aggregation, `Assoc aggregation_params; ]
       end aggregations
     in
     Some (Util_j.string_of_assoc [ "aggs", `Assoc aggregations; ])
@@ -1893,38 +1899,48 @@ let refresh_tool =
 
 let search_tool =
   let aggregation =
-    let module Let_syntax = struct let map ~f = function Ok x -> f x | Error _ as error -> error end in
+    let module Let_syntax =
+      struct
+        let map ~f = function Ok x -> f x | Error _ as error -> error
+        let bind ~f = function [] -> f (None, []) | hd :: tl -> f (Some hd, tl)
+      end
+    in
+    let missing_field name = Error (`Msg (sprintf "terms aggregation %s missing field" name)) in
+    let parse conv =
+      let parse = Arg.conv_parser conv in
+      fun x -> Option.map_default (fun x -> let%map x = parse x in Ok (Some x)) (Ok None) x
+    in
+    let parse_int = parse Arg.int in
     let parse_terms name = function
-      | [] -> Error (`Msg (sprintf "terms aggregation %s missing field" name))
+      | [] -> missing_field name
       | field :: params ->
-      let agg = { field; size = None; } in
-      let%map (agg, params) =
-        match params with
-        | [] -> Ok (agg, [])
-        | size :: params ->
-        let%map size = Arg.(conv_parser int) size in
-        Ok ({ agg with size = Some size; }, params)
-      in
-      match params with
-      | _ :: _ -> Error (`Msg (sprintf "terms aggregation %s unknown extra parameters: %s" name (String.concat ":" params)))
-      | [] -> Ok (Terms agg)
+      let%bind (size, params) = params in
+      let%map size = parse_int size in
+      let agg = { field; size; } in
+      Ok (Terms agg, params)
     in
     let parse agg =
       match Stre.nsplitc agg ':' with
       | [] -> assert false
       | name :: [] -> Error (`Msg (sprintf "aggregation %s missing type" name))
       | name :: type_ :: params ->
-      let%map agg =
+      let%map (agg, params) =
         match type_ with
-        | "t" | "term" | "terms" -> parse_terms name params
+        | "t" | "terms" -> parse_terms name params
         | agg -> Error (`Msg (sprintf "unknown aggregation type: %s" agg))
       in
-      Ok (name, agg)
+      match params with
+      | [] -> Ok (name, agg)
+      | _ :: _ ->
+      let msg = sprintf "%s aggregation %s unknown extra parameters: %s" (string_of_aggregation agg) name (String.concat ":" params) in
+      Error (`Msg msg)
     in
     let print fmt (name, agg) =
+      let cons map hd tl = match hd with Some hd -> map hd :: tl | None -> tl in
       let params =
         match agg with
-        | Terms { field; size } -> name :: field :: (match size with Some size -> [ string_of_int size; ] | None -> [])
+        | Terms { field; size } ->
+          name :: field :: cons string_of_int size []
       in
       Format.fprintf fmt "%s" (String.concat ":" params)
     in
