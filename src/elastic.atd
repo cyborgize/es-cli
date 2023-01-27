@@ -29,7 +29,7 @@ type multiget = {
 
 type id_hit = {
   index <json name="_index"> : string;
-  doc_type <json name="_type"> : string;
+  ?doc_type <json name="_type"> : string option;
   id <json name="_id"> : string;
 }
 

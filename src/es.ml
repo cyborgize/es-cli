@@ -70,6 +70,8 @@ let fail_lwt fmt =
     Lwt.fail ErrorExit
   end fmt
 
+let default_doc_type = "_doc"
+
 type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
 
 type 't json_writer = Bi_outbuf.t -> 't -> unit
@@ -91,8 +93,8 @@ let es6_config = {
 let es7_config = {
   read_total = Elastic_j.read_total;
   write_total = Elastic_j.write_total;
-  default_get_doc_type = "_doc";
-  default_put_doc_type = Some "_doc";
+  default_get_doc_type = default_doc_type;
+  default_put_doc_type = Some default_doc_type;
 }
 
 let rec coalesce = function Some _ as hd :: _ -> hd | None :: tl -> coalesce tl | [] -> None
@@ -106,6 +108,7 @@ let get_es_version { verbose; _ } host =
   | "5" :: _ -> Lwt.return `ES5
   | "6" :: _ -> Lwt.return `ES6
   | "7" :: _ -> Lwt.return `ES7
+  | "8" :: _ -> Lwt.return `ES8
   | other :: _ ->
   match int_of_string other with
   | exception exn -> Exn_lwt.fail ~exn "invalid ES version number : %s" number
@@ -113,7 +116,7 @@ let get_es_version { verbose; _ } host =
 
 let get_es_version_config' = function
   | `ES5 | `ES6 -> es6_config
-  | `ES7 -> es7_config
+  | `ES7 | `ES8 -> es7_config
 
 let get_es_version_config common_args host es_version { Config_t.version = config_version; _ } cluster_version =
   let version = coalesce [ es_version; cluster_version; config_version; ] in
@@ -183,9 +186,10 @@ let string_of_hit_format = function
 
 let map_of_hit_format =
   let open Elastic_t in function
-  | `FullID -> (fun ({ index; doc_type; id; _ } : 'a Elastic_t.option_hit) -> sprintf "/%s/%s/%s" index doc_type id)
+  | `FullID -> (fun ({ index; doc_type; id; _ } : 'a Elastic_t.option_hit) ->
+    sprintf "/%s/%s/%s" index (Option.default default_doc_type doc_type) id)
   | `ID -> (fun hit -> hit.id)
-  | `Type -> (fun hit -> hit.doc_type)
+  | `Type -> (fun hit -> Option.default default_doc_type hit.doc_type)
   | `Index -> (fun hit -> hit.index)
   | `Routing -> (fun hit -> Option.default "" hit.routing)
   | `Hit -> (fun hit -> Elastic_j.string_of_option_hit J.write_json hit)
@@ -1544,6 +1548,7 @@ let common_args =
       Some `ES5, Arg.info [ "5"; ] ~docs ~doc:"force ES version 5.x";
       Some `ES6, Arg.info [ "6"; ] ~docs ~doc:"force ES version 6.x";
       Some `ES7, Arg.info [ "7"; ] ~docs ~doc:"force ES version 7.x";
+      Some `ES8, Arg.info [ "8"; ] ~docs ~doc:"force ES version 8.x";
     ])
   in
   let verbose =
