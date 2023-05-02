@@ -14,7 +14,7 @@ depends: [
   "ocaml" {build & >= "4.01.0"}
   "dune" {build & >= "1.5"}
   "mybuild" {build}
-  "atdgen" {>= "1.6.0"}
+  "atdgen" {>= "2.10.0"}
   "cmdliner"
   "devkit" {>= "1.0"}
   "extlib" {>= "1.7.1"}

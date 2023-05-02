@@ -74,7 +74,7 @@ let default_doc_type = "_doc"
 
 type 't json_reader = J.lexer_state -> Lexing.lexbuf -> 't
 
-type 't json_writer = Bi_outbuf.t -> 't -> unit
+type 't json_writer = Buffer.t -> 't -> unit
 
 type es_version_config = {
   read_total : Elastic_t.total json_reader;
