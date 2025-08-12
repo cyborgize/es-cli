@@ -234,3 +234,47 @@ type bulk_action = {
   inherit doc_id;
   ?routing : string option;
 }
+
+type reroute_command = {
+  ?allocate_replica : allocate_replica option;
+  ?allocate_empty_primary : allocate_empty_primary option;
+  ?move : move_shard option;
+  ?cancel : cancel_shard option;
+}
+
+type allocate_replica = {
+  index : string;
+  shard : int;
+  node : string;
+}
+
+type allocate_empty_primary = {
+  index : string;
+  shard : int;
+  node : string;
+  accept_data_loss : bool;
+}
+
+type move_shard = {
+  index : string;
+  shard : int;
+  from_node : string;
+  to_node : string;
+}
+
+type cancel_shard = {
+  index : string;
+  shard : int;
+  node : string;
+}
+
+type reroute_request = {
+  commands : reroute_command list;
+  ?dry_run : bool option;
+  ?explain : bool option;
+  ?retry_failed : bool option;
+}
+
+type reroute_response = {
+  acknowledged : bool;
+}

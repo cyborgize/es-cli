@@ -231,6 +231,48 @@ Display shards which are not in `DONE` stage:
 es recovery cluster1.mydomain.com:9200 -e stage done
 ```
 
+## Shard allocation (reroute)
+
+The `reroute` command allows manual allocation of shards to specific nodes.
+
+### Allocate replica shard (safe operation)
+
+Allocate replica shard 900 of index `myindex-2024.07.26` to node `data001-2`:
+
+```
+es reroute cluster1 -r myindex-2024.07.26:900:data001-2
+```
+
+### Allocate empty primary shard (WARNING: causes data loss!)
+
+Allocate empty primary shard 0 of index `myindex-2024.07.26` to node `data001-2`:
+
+```
+es reroute cluster1 -p myindex-2024.07.26:0:data001-2
+```
+
+**Important**: Primary shard allocation will prompt for confirmation since it causes data loss for that shard.
+
+### Additional options
+
+Get detailed explanation of reroute decisions:
+
+```
+es reroute cluster1 -r myindex-2024.07.26:900:data001-2 --explain
+```
+
+Retry failed allocations:
+
+```
+es reroute cluster1 -r myindex-2024.07.26:900:data001-2 --retry-failed
+```
+
+### Get help
+
+```
+es reroute --help
+```
+
 ## Get or set cluster setttings
 
 List all persistent and transient settings:
