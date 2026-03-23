@@ -1502,7 +1502,7 @@ module Settings = struct
         | `Bool x -> string_of_bool x
         | `Int x -> string_of_int x
         | `Float x -> string_of_float x
-        | `List _ | `Assoc _ | `Tuple _ | `Variant _ as value -> J.to_string value
+        | `List _ | `Assoc _ as value -> J.to_string value
       in
       let print_value value =
         Lwt_io.printl (string_of_value value)
