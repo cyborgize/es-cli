@@ -24,7 +24,7 @@
 (rule
   (targets config_j.ml config_j.mli)
   (deps config.atd)
-  (action (run atdgen -j -j-std %{deps})))
+  (action (run atdgen -j %{deps})))
 
 (rule
   (targets elastic_t.ml elastic_t.mli)
@@ -34,7 +34,7 @@
 (rule
   (targets elastic_j.ml elastic_j.mli)
   (deps elastic.atd)
-  (action (run atdgen -j -j-std %{deps})))
+  (action (run atdgen -j %{deps})))
 
 (rule
   (targets util_t.ml util_t.mli)
@@ -44,4 +44,4 @@
 (rule
   (targets util_j.ml util_j.mli)
   (deps util.atd)
-  (action (run atdgen -j -j-std %{deps})))
+  (action (run atdgen -j %{deps})))
