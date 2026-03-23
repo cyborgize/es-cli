@@ -1530,8 +1530,6 @@ end (* Settings *)
 
 open Cmdliner
 
-[@@@alert "-deprecated"]
-
 module Let_syntax = struct
 
   let map ~f t = Term.(const f $ t)
@@ -1557,12 +1555,15 @@ let common_args =
   in
   Term.(const args $ es_version $ verbose)
 
-let default_tool =
+let default_info =
   let doc = "a command-line client for ES" in
   let sdocs = Manpage.s_common_options in
-  let exits = Term.default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  Term.(ret (const (fun _ -> `Help (`Pager, None)) $ common_args), info "es" ~version:Common.version ~doc ~sdocs ~exits ~man)
+  Cmd.info "es" ~version:Common.version ~doc ~sdocs ~exits ~man
+
+let default_term =
+  Term.(ret (const (fun _ -> `Help (`Pager, None)) $ common_args))
 
 let alias_tool =
   let action =
@@ -1606,12 +1607,10 @@ let alias_tool =
   }
 
 let alias_tool =
-  alias_tool,
-  let open Term in
   let doc = "add or remove index aliases" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "alias" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) alias_tool
 
 let cat_tool =
   let conv_format =
@@ -1668,12 +1667,10 @@ let cat_tool =
   }
 
 let cat_tool =
-  cat_tool,
-  let open Term in
   let doc = "cat" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "cat" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "cat" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) cat_tool
 
 let count_tool =
   let open Common_args in
@@ -1708,12 +1705,10 @@ let count_tool =
   }
 
 let count_tool =
-  count_tool,
-  let open Term in
   let doc = "count" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "count" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "count" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) count_tool
 
 let delete_tool =
   let open Common_args in
@@ -1734,12 +1729,10 @@ let delete_tool =
   }
 
 let delete_tool =
-  delete_tool,
-  let open Term in
   let doc = "delete document(s)" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "delete" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "delete" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) delete_tool
 
 let flush_tool =
   let open Common_args in
@@ -1760,12 +1753,10 @@ let flush_tool =
   }
 
 let flush_tool =
-  flush_tool,
-  let open Term in
   let doc = "flush indices" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "flush" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) flush_tool
 
 let get_tool =
   let open Common_args in
@@ -1794,12 +1785,10 @@ let get_tool =
   }
 
 let get_tool =
-  get_tool,
-  let open Term in
   let doc = "get document(s)" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "get" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) get_tool
 
 let health_tool =
   let%map common_args = common_args
@@ -1809,12 +1798,10 @@ let health_tool =
   }
 
 let health_tool =
-  health_tool,
-  let open Term in
   let doc = "cluster health" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "health" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) health_tool
 
 let index_tool =
   let open Common_args in
@@ -1843,12 +1830,10 @@ let index_tool =
   }
 
 let index_tool =
-  index_tool,
-  let open Term in
   let doc = "index" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "index" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "index" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) index_tool
 
 let nodes_tool =
   let open Common_args in
@@ -1864,12 +1849,10 @@ let nodes_tool =
   }
 
 let nodes_tool =
-  nodes_tool,
-  let open Term in
   let doc = "cluster nodes" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "nodes" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) nodes_tool
 
 let put_tool =
   let open Common_args in
@@ -1893,12 +1876,10 @@ let put_tool =
   }
 
 let put_tool =
-  put_tool,
-  let open Term in
   let doc = "put document" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "put" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) put_tool
 
 let recovery_tool =
   let format =
@@ -1936,12 +1917,10 @@ let recovery_tool =
   }
 
 let recovery_tool =
-  recovery_tool,
-  let open Term in
   let doc = "cluster recovery" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "recovery" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "recovery" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) recovery_tool
 
 let refresh_tool =
   let open Common_args in
@@ -1957,12 +1936,10 @@ let refresh_tool =
   }
 
 let refresh_tool =
-  refresh_tool,
-  let open Term in
   let doc = "refresh indices" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "refresh" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) refresh_tool
 
 let search_tool =
   let aggregation =
@@ -2130,12 +2107,10 @@ let search_tool =
   }
 
 let search_tool =
-  search_tool,
-  let open Term in
   let doc = "search" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "search" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "search" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) search_tool
 
 let settings_tool =
   let open Common_args in
@@ -2167,7 +2142,7 @@ let settings_tool =
       Arg.(conv (parse, print))
     in
     Arg.(value & opt ~vopt:(JSON : output) output Text & info [ "J"; "output"; ] ~doc:"choose output format")
-  and type_ = 
+  and type_ =
     let type_transient = Some Transient, Arg.info [ "t"; "transient"; ] ~doc:"transient setting" in
     let type_persistent = Some Persistent, Arg.info [ "p"; "persistent"; ] ~doc:"persistent setting" in
     let type_defaults = Some Defaults, Arg.info [ "d"; "default"; ] ~doc:"default setting" in
@@ -2184,12 +2159,10 @@ let settings_tool =
   }
 
 let settings_tool =
-  settings_tool,
-  let open Term in
   let doc = "manage cluster settings" in
-  let exits = default_exits in
+  let exits = Cmd.Exit.defaults in
   let man = [] in
-  info "settings" ~doc ~sdocs:Manpage.s_common_options ~exits ~man
+  Cmd.v (Cmd.info "settings" ~doc ~sdocs:Manpage.s_common_options ~exits ~man) settings_tool
 
 let tools = [
   alias_tool;
@@ -2211,7 +2184,8 @@ let tools = [
 let () =
   try
     let argv = Common.get_argv () in
-    Term.(exit (eval_choice ~catch:false ~argv default_tool tools))
+    let cmd = Cmd.group ~default:default_term default_info tools in
+    exit (Cmd.eval ~catch:false ~argv cmd)
   with
   | ErrorExit -> exit 1
   | exn -> log #error ~exn "uncaught exception"; exit 125
