@@ -110,6 +110,7 @@ let get_es_version { verbose; _ } host =
   | "6" :: _ -> Lwt.return `ES6
   | "7" :: _ -> Lwt.return `ES7
   | "8" :: _ -> Lwt.return `ES8
+  | "9" :: _ -> Lwt.return `ES9
   | other :: _ ->
   match int_of_string other with
   | exception exn -> Exn_lwt.fail ~exn "invalid ES version number : %s" number
@@ -117,7 +118,7 @@ let get_es_version { verbose; _ } host =
 
 let get_es_version_config' = function
   | `ES5 | `ES6 -> es6_config
-  | `ES7 | `ES8 -> es7_config
+  | `ES7 | `ES8 | `ES9 -> es7_config
 
 let get_es_version_config common_args host es_version { Config_t.version = config_version; _ } cluster_version =
   let version = coalesce [ es_version; cluster_version; config_version; ] in
@@ -1548,6 +1549,7 @@ let common_args =
       Some `ES6, Arg.info [ "6"; ] ~docs ~doc:"force ES version 6.x";
       Some `ES7, Arg.info [ "7"; ] ~docs ~doc:"force ES version 7.x";
       Some `ES8, Arg.info [ "8"; ] ~docs ~doc:"force ES version 8.x";
+      Some `ES9, Arg.info [ "9"; ] ~docs ~doc:"force ES version 9.x";
     ])
   in
   let verbose =

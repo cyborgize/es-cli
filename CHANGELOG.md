@@ -1,5 +1,8 @@
 # Change Log
 
+## UNRELEASED
+- add support for ES 9.x
+
 ## 1.2
 - `settings` tool
 - `count` tool

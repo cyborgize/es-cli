@@ -10,6 +10,7 @@ module Version = struct
     | `ES6
     | `ES7
     | `ES8
+    | `ES9
   ]
 
   type t = [
@@ -23,6 +24,7 @@ module Version = struct
     | `Int 6 | `String "6" | `Intlit "6" -> `ES6
     | `Int 7 | `String "7" | `Intlit "7" -> `ES7
     | `Int 8 | `String "8" | `Intlit "8" -> `ES8
+    | `Int 9 | `String "9" | `Intlit "9" -> `ES9
     | x -> Exn.fail "unknown ES version %s" (J.to_string x)
 
   let unwrap = function
@@ -31,5 +33,6 @@ module Version = struct
     | `ES6 -> `Int 6
     | `ES7 -> `Int 7
     | `ES8 -> `Int 8
+    | `ES9 -> `Int 9
 
 end
